@@ -12,6 +12,7 @@ endif()
 
 add_llvm_library( LLVMAssn1 MODULE BUILDTREE_ONLY
   Assn1.cpp
+  LoopUtils.cpp
 
   DEPENDS
   intrinsics_gen
