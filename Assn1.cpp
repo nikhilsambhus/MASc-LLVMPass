@@ -33,7 +33,8 @@ namespace {
 		InstCounter = 0;
 		LoadCounter = 0;
 		StoreCounter = 0;
-		//std::map<StringRef, char*> defs;
+		std::map<StringRef, Value*> defsMap;
+		std::map<StringRef, std::vector<User *>> usesMap;
 		for(inst_iterator itr = inst_begin(F), etr = inst_end(F); itr != etr; itr++) {
 			InstCounter++;
 
@@ -42,12 +43,20 @@ namespace {
 				if(v->hasName() == false) {
 					continue;
 				}
-				errs() << *v << " with name "<< v->getName() << " with type "<< *(v->getType()) << " Uses are: ";
-				for(user_iter : v->uses() ) {
-					User *ut = user_iter.getUser();
-					errs() << *ut  << " " ;
+				
+				if(defsMap.find(v->getName()) != defsMap.end()) {
+					continue;
 				}
-				errs() << "Uses ends ";
+				defsMap.insert(std::pair<StringRef, Value*>(v->getName(), v));
+				//errs() << *v << " with name "<< v->getName() << " with type "<< *(v->getType()) << " Uses are: ";
+				std::vector<User*> users;
+				for(use_iter : v->uses() ) {
+					User *ut = use_iter.getUser();
+					users.push_back(ut);
+					//errs() << *ut  << " " ;
+				}
+				usesMap.insert(std::pair<StringRef, std::vector<User *>>(v->getName(), users));
+				//errs() << "Uses ends ";
 			}
 
 			if(llvm::isa <llvm::StoreInst> (*itr)) {
@@ -60,6 +69,21 @@ namespace {
 			errs() << "Instruction is " << *itr << "\n";
 
       		}
+
+		errs() << "Defs in this function are :\n";
+		for(std::pair <StringRef, Value*>elem : defsMap) {
+			errs() << "Name is " << elem.first << " Instruction defining is " << *elem.second << "\n"; 
+		}
+
+		errs() << "Uses in this function are :\n";
+		for(std::pair <StringRef, std::vector<User*>>elem : usesMap) {
+			errs() << "Name is " << elem.first << " Instruction using are ";
+			std::vector<User*> users = elem.second; 
+			for(auto& it : users) {
+				errs() << *it << " ";
+			}
+			errs() << "\n";
+		}
 
 		LoopCounter = 0;
 		LoopInfo &Li = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
