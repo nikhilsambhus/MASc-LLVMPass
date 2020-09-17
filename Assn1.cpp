@@ -3,12 +3,14 @@
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/Value.h"
+#include "llvm/IR/User.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/Pass.h"
 #include "llvm/Analysis/LoopInfo.h"
 #include "llvm/Support/raw_ostream.h"
 #include "LoopUtils.h"
 #include "llvm/IR/InstIterator.h"
+#include <queue>
 using namespace llvm;
 
 #define DEBUG_TYPE "assn1"
@@ -20,13 +22,110 @@ STATISTIC(LoopCounter, "Counts number of loops greeted");
 STATISTIC(BBCounter, "Counts number of basic blocks greeted");
 
 namespace {
+  struct vertex {
+  	StringRef label;
+	User *instr;
+  };
+  struct graph {
+	std::map<StringRef, std::vector<struct vertex>> AList;
+	std::map<StringRef, bool> visited;
+  };
   struct Assn1Loop : public FunctionPass {
+  		
 	  static char ID;
 	  Assn1Loop() : FunctionPass(ID) {}
 	  
 	  virtual void getAnalysisUsage(AnalysisUsage& AU) const override {
         	AU.addRequired<LoopInfoWrapperPass>();
     	  }
+
+
+	  void printGraph(struct graph gpList) {
+	  	for(std::pair<StringRef, std::vector<struct vertex>> vxP : gpList.AList) {
+			errs() << vxP.first << " has following neighbours: ";
+			std::vector<struct vertex> vList = vxP.second;
+			for(struct vertex vtx : vList) {
+				errs() << "Instruction " << *vtx.instr << " with operand " << (vtx.label.empty() ? "None" : vtx.label) << "\t";
+			}
+			errs() << "\n";
+		}
+	  }
+
+	  void initVisit(struct graph *graphAL) {
+	  	for(std::pair<StringRef, std::vector<struct vertex>> elem : graphAL->AList) {
+			graphAL->visited[elem.first] = false;
+		}
+          }
+	  void printClosure(StringRef lab, struct graph graphAL, Value* def) {
+	  	errs() << "Definition of " << lab << " is " << *def << " Its closure is ";
+		initVisit(&graphAL);
+
+		std::queue<struct vertex> vtx_queue;
+		std::vector<struct vertex> vList = graphAL.AList.find(lab)->second;
+		graphAL.visited[lab] = true;
+		for(struct vertex vtx : vList) {
+			vtx_queue.push(vtx);
+		}
+
+
+		while(!vtx_queue.empty() ) {
+			struct vertex nxt_vtx = vtx_queue.front();
+			vtx_queue.pop();
+			errs() << " Instruction: " << *nxt_vtx.instr << " Label: " << (nxt_vtx.label.empty() ? "None" : nxt_vtx.label) << "\t";
+			if(nxt_vtx.label.empty()) {
+				continue;
+			}
+			std::vector<struct vertex> vListNei = graphAL.AList.find(nxt_vtx.label)->second;
+			graphAL.visited[nxt_vtx.label] = true;
+			for(struct vertex vtx : vListNei) {
+				if(graphAL.visited.find(vtx.label)->second == false) {
+					vtx_queue.push(vtx);
+				}
+			}
+			
+		}
+
+		errs() << "\n";
+
+	  }
+	  struct graph convertToGraph(std::map<StringRef, Value*> defs, std::map<StringRef, std::vector<User*>> uses) {
+	 	struct graph graphAL;
+
+		for(std::pair <StringRef, std::vector<User*>>elem : uses) {
+			StringRef lab = elem.first;
+			std::vector<User *> ulist = elem.second;
+			//errs() << "\n" << lab << " Is the base label\n";
+			std::vector<struct vertex> neighVs;
+			for(User *us : ulist) {
+				//errs() << "Instruction "<< *us << " has operand ";
+				StringRef opLab;
+				for(auto op: us->operand_values()) {
+					if(!op->hasName() || op->getName() == lab) {
+						continue;
+					}
+					opLab = op->getName();
+				}
+				if(opLab.empty() && us->hasName()) {
+					opLab = us->getName();
+				}
+
+				/*if(opLab.empty()) {
+					errs() << "No operand other than base ";
+				}
+				else {
+					errs() << opLab << " ";
+				}*/
+				struct vertex vtr;
+				vtr.instr = us;
+				vtr.label = opLab;
+				neighVs.push_back(vtr);
+			}
+			graphAL.AList.insert(std::pair<StringRef, std::vector<struct vertex>>(lab, neighVs));
+
+		}
+
+		return graphAL;
+	  }
 
 	  bool runOnFunction(Function &F) override {
 		errs() << "\nFunction name : " << F.getName() << "\n";
@@ -70,6 +169,7 @@ namespace {
 
       		}
 
+		/*
 		errs() << "Defs in this function are :\n";
 		for(std::pair <StringRef, Value*>elem : defsMap) {
 			errs() << "Name is " << elem.first << " Instruction defining is " << *elem.second << "\n"; 
@@ -83,6 +183,14 @@ namespace {
 				errs() << *it << " ";
 			}
 			errs() << "\n";
+		}*/
+
+		struct graph graphAL = convertToGraph(defsMap, usesMap);
+		
+		//printGraph(graphAL);
+
+		for(std::pair <StringRef, Value*>elem : defsMap) {
+			printClosure(elem.first, graphAL, elem.second);
 		}
 
 		LoopCounter = 0;
