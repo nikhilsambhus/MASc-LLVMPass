@@ -72,7 +72,7 @@ namespace {
 			struct vertex nxt_vtx = vtx_queue.front();
 			vtx_queue.pop();
 			errs() << " Instruction: " << *nxt_vtx.instr << " Label: " << (nxt_vtx.label.empty() ? "None" : nxt_vtx.label) << "\t";
-			if(nxt_vtx.label.empty()) {
+			if(nxt_vtx.label.empty() || nxt_vtx.label.startswith("while")) {
 				continue;
 			}
 			std::vector<struct vertex> vListNei = graphAL.AList.find(nxt_vtx.label)->second;
@@ -134,6 +134,7 @@ namespace {
 		StoreCounter = 0;
 		std::map<StringRef, Value*> defsMap;
 		std::map<StringRef, std::vector<User *>> usesMap;
+		inst_iterator phi;
 		for(inst_iterator itr = inst_begin(F), etr = inst_end(F); itr != etr; itr++) {
 			InstCounter++;
 
@@ -143,6 +144,10 @@ namespace {
 					continue;
 				}
 				
+				if(v->getName().startswith("while") == true) {
+					continue;
+				}
+
 				if(defsMap.find(v->getName()) != defsMap.end()) {
 					continue;
 				}
@@ -166,15 +171,21 @@ namespace {
 			}
 
 			errs() << "Instruction is " << *itr << "\n";
+			if(llvm::isa<llvm::PHINode>(*itr)) {
+				errs() << "Is phinode " << itr->getName() << "\n" ;
+				phi = itr;
+			}
 
       		}
 
-		/*
+		
+		
 		errs() << "Defs in this function are :\n";
 		for(std::pair <StringRef, Value*>elem : defsMap) {
 			errs() << "Name is " << elem.first << " Instruction defining is " << *elem.second << "\n"; 
 		}
-
+		
+		/*
 		errs() << "Uses in this function are :\n";
 		for(std::pair <StringRef, std::vector<User*>>elem : usesMap) {
 			errs() << "Name is " << elem.first << " Instruction using are ";
@@ -189,16 +200,24 @@ namespace {
 		
 		//printGraph(graphAL);
 
-		for(std::pair <StringRef, Value*>elem : defsMap) {
+		printClosure(phi->getName(), graphAL, defsMap.find(phi->getName())->second);
+		/*for(std::pair <StringRef, Value*>elem : defsMap) {
 			printClosure(elem.first, graphAL, elem.second);
-		}
+		}*/
+
+		/*
+		StringRef it_lab = "i";
+		errs() << "Iterator is " << *defsMap[it_lab] << "\n";
+		printClosure(it_lab, graphAL, defsMap[it_lab]);
+		*/
 
 		LoopCounter = 0;
 		LoopInfo &Li = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
 		for(Loop *lit : Li) {
 			LoopCounter++;
-			PHINode *phinode = autotune::getInductionVariable(lit);
-			//errs() << *phinode << "\n";
+			//PHINode *phinode = autotune::getInductionVariable(lit);
+			PHINode *phinode = lit->getCanonicalInductionVariable();
+			errs() << *phinode << "\n";
 			for(BasicBlock *BB : lit->getBlocks())
                 	{
                     		errs() << "basicb name: "<< BB->getName() <<"\n";
@@ -207,6 +226,7 @@ namespace {
 
 
     		errs() << "Loop count in function " << F.getName() << " is : " << LoopCounter << "\n";
+		
 		return false;
 	  }
   };
