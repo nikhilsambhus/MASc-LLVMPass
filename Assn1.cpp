@@ -7,6 +7,7 @@
 #include "llvm/IR/Instructions.h"
 #include "llvm/Pass.h"
 #include "llvm/Analysis/LoopInfo.h"
+#include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/Support/raw_ostream.h"
 #include "LoopUtils.h"
 #include "llvm/IR/InstIterator.h"
@@ -125,12 +126,6 @@ namespace {
 					opLabs.push_back(us->getName());
 				}
 
-				/*if(opLab.empty()) {
-					errs() << "No operand other than base ";
-				}
-				else {
-					errs() << opLab << " ";
-				}*/
 				struct vertex vtr;
 				vtr.instr = us;
 				vtr.labels = opLabs;
@@ -154,29 +149,70 @@ namespace {
 				allPaths.push_back(pathV);
 			}
 		}
+		else {
+			//search the path vector ending with source label
+			//Replicate it for number of destination labels adding destination pathElem node
+			for(std::vector<pathElem> &pathV : allPaths) {
+				pathElem cmp = pathV.back();
+				if(src == cmp.lab) {
+					pathElem elem;
+					if(destV.empty()) {
+						elem.lab = "";
+					}
+					else {
+						elem.lab = destV.back();
+						destV.pop_back();
+					}
+					elem.inst = inst;
+					pathV.push_back(elem);
+					for(StringRef dest: destV) {
+						std::vector<pathElem> cpPathV;
+						copy(pathV.begin(), pathV.end() - 1, back_inserter(cpPathV));
+						pathElem elem;
+						elem.inst = inst;
+						elem.lab = dest;
+						cpPathV.push_back(elem);
+						allPaths.push_back(cpPathV);
+					}
+				}
+			}
+		}
+	  }
+
+	  void printPaths(pathElems &allPaths) {
+	  	errs() << "Printing all paths\n";
+		int count = 1;
+		for(std::vector<pathElem> pathV : allPaths) {
+			errs() << "Path no. " << count << " ";
+			for(pathElem elem: pathV) {
+				errs() << *(elem.inst) << " dest label is: " << elem.lab << "\t";
+			}
+			count++;
+			errs() << "\n";
+		}
 	  }
 	  void reverseClosure(llvm::BasicBlock::iterator &inst, std::map<StringRef, Value*> defsMap) {
 	  	  std::queue<StringRef> labQ;
 		  pathElems allPaths;
 		  std::map <StringRef, bool> visited;
-		  errs() << "Instruction is " << *inst << " Closure set is:\n";
 		  std::vector<StringRef> destV;
-		  for (Use &U : inst->operands()) {
-			  Value *v = U.get();
-			  if(v->getName().startswith("for") == true) {
-				continue;
-			  }
-			  labQ.push(v->getName());
-			  destV.push_back(v->getName());
-			  visited[v->getName()] = true;
+		  Value *v;
+		  if(llvm::isa <llvm::StoreInst> (*inst)) {
+		  	v = inst->getOperand(1);
 		  }
-		  
+		  else if(llvm::isa<llvm::LoadInst> (*inst)) {
+		  	v = inst->getOperand(0);
+		  }
+		  labQ.push(v->getName());
+		  destV.push_back(v->getName());
+		  visited[v->getName()] = true;
+
 		  StringRef empty;
 		  addToPath(empty, cast<Instruction>(inst), destV, allPaths);
 
 		  while(!labQ.empty()) {
 		  	  StringRef v = labQ.front();
-			  errs() << v << " defined by " << *defsMap[v] << "\n";
+			  //errs() << v << " defined by " << *defsMap[v] << "\n";
 			  labQ.pop();
 			  Instruction* inst2 = cast<Instruction>(defsMap[v]);
 			  destV.clear();
@@ -191,11 +227,11 @@ namespace {
 					visited[v->getName()] = true;
 				 }
 			  }
+
 			  addToPath(v, inst2, destV, allPaths);
+			  
 		  }
-
-		  errs() << "\n";
-
+		  printPaths(allPaths);
 	  }
 	  bool runOnFunction(Function &F) override {
 		errs() << "\nFunction name : " << F.getName() << "\n";
@@ -204,7 +240,6 @@ namespace {
 		StoreCounter = 0;
 		std::map<StringRef, Value*> defsMap;
 		std::map<StringRef, std::vector<User *>> usesMap;
-		inst_iterator phi;
 		for(inst_iterator itr = inst_begin(F), etr = inst_end(F); itr != etr; itr++) {
 			InstCounter++;
 
@@ -241,10 +276,6 @@ namespace {
 			}
 
 			errs() << "Instruction is " << *itr << "\n";
-			if(llvm::isa<llvm::PHINode>(*itr)) {
-				errs() << "Is phinode " << itr->getName() << "\n" ;
-				phi = itr;
-			}
 
       		}
 
@@ -294,7 +325,7 @@ namespace {
                     		errs() << "basicb name: "<< BB->getName() <<"\n";
 				if(BB->getName().startswith("for.body")) {
 					for (BasicBlock::iterator itr = BB->begin(), e = BB->end(); itr != e; ++itr) {
-						if(llvm::isa <llvm::StoreInst> (*itr)) {
+						if(llvm::isa <llvm::StoreInst> (*itr) || llvm::isa<llvm::LoadInst> (*itr)) {
 							reverseClosure(itr, defsMap);										
 						}
 					}
