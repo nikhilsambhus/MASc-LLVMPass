@@ -44,6 +44,7 @@ namespace {
 	  
 	  virtual void getAnalysisUsage(AnalysisUsage& AU) const override {
         	AU.addRequired<LoopInfoWrapperPass>();
+		AU.addRequired<ScalarEvolutionWrapperPass>();
     	  }
 
 
@@ -180,7 +181,6 @@ namespace {
 	  }
 
 	  void printPaths(pathElems &allPaths) {
-	  	errs() << "Printing all paths\n";
 		int count = 1;
 		for(std::vector<pathElem> pathV : allPaths) {
 			errs() << "Path no. " << count << " ";
@@ -231,6 +231,11 @@ namespace {
 			  addToPath(v, inst2, destV, allPaths);
 			  
 		  }
+		  errs() << "All labels impacting the address in the instruction " << *inst << " are: ";
+		  for(std::pair<StringRef, bool> elem : visited) {
+		  	errs() << " " << elem.first;
+		  }
+		  errs() << "\nAll Paths impacting the address in this instruction are\n";
 		  printPaths(allPaths);
 	  }
 	  bool runOnFunction(Function &F) override {
@@ -317,9 +322,28 @@ namespace {
 		LoopInfo &Li = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
 		for(Loop *lit : Li) {
 			LoopCounter++;
-			//PHINode *phinode = autotune::getInductionVariable(lit);
-			PHINode *phinode = lit->getCanonicalInductionVariable();
+			PHINode *phinode;
+			/*phinode = autotune::getInductionVariable(lit);
 			errs() << *phinode << "\n";
+			*/
+			ScalarEvolution &SE = getAnalysis<ScalarEvolutionWrapperPass>().getSE(); 
+
+			phinode = lit->getInductionVariable(SE);
+			errs() << *phinode << "\n";
+			llvm::Optional<Loop::LoopBounds> lbs = lit->getBounds(SE);
+			Value& vInit = (*lbs).getInitialIVValue();
+			ConstantInt *Ci;
+			Ci = cast<ConstantInt>(&vInit);
+			errs() << "Initialization of loop is " << Ci->getSExtValue() << "\n";
+
+			Value& vFinal = (*lbs).getFinalIVValue();
+			Ci = cast<ConstantInt>(&vFinal);
+			errs() << "Loop upper bound / goes upto " << Ci->getSExtValue() << "\n";
+
+			Value* step = (*lbs).getStepValue();
+			Ci = cast<ConstantInt>(step);
+			errs() << "Step value of the loop is " << Ci->getSExtValue() << "\n";
+
 			for(BasicBlock *BB : lit->getBlocks())
                 	{
                     		errs() << "basicb name: "<< BB->getName() <<"\n";
