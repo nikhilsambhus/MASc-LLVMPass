@@ -23,14 +23,6 @@ STATISTIC(LoopCounter, "Counts number of loops greeted");
 STATISTIC(BBCounter, "Counts number of basic blocks greeted");
 
 namespace {
-  struct vertex {
-  	std::vector<StringRef> labels;
-	User *instr;
-  };
-  struct graph {
-	std::map<StringRef, std::vector<struct vertex>> AList;
-	std::map<StringRef, bool> visited;
-  };
   struct pathElem {
   	StringRef lab;
 	Instruction *inst;
@@ -46,98 +38,6 @@ namespace {
         	AU.addRequired<LoopInfoWrapperPass>();
 		AU.addRequired<ScalarEvolutionWrapperPass>();
     	  }
-
-
-	  void printGraph(struct graph gpList) {
-	  	for(std::pair<StringRef, std::vector<struct vertex>> vxP : gpList.AList) {
-			errs() << vxP.first << " has following neighbours: ";
-			std::vector<struct vertex> vList = vxP.second;
-			for(struct vertex vtx : vList) {
-				errs() << "Instruction " << *vtx.instr << " with operands ";
-				for(StringRef lab : vtx.labels) {
-					errs() << (lab.empty() ? "None" : lab) << "\t";
-				}
-			}
-			errs() << "\n";
-		}
-	  }
-
-	  void initVisit(struct graph *graphAL) {
-	  	for(std::pair<StringRef, std::vector<struct vertex>> elem : graphAL->AList) {
-			graphAL->visited[elem.first] = false;
-		}
-          }
-	  void printClosure(StringRef lab, struct graph graphAL, Value* def) {
-	  	errs() << "Definition of " << lab << " is " << *def << " Its closure is ";
-		initVisit(&graphAL);
-
-		std::queue<struct vertex> vtx_queue;
-		std::vector<struct vertex> vList = graphAL.AList.find(lab)->second;
-		graphAL.visited[lab] = true;
-		for(struct vertex vtx : vList) {
-			vtx_queue.push(vtx);
-		}
-
-
-		while(!vtx_queue.empty()) {
-			struct vertex nxt_vtx = vtx_queue.front();
-			vtx_queue.pop();
-			errs() << " Instruction: " << *nxt_vtx.instr << " Labels: ";
-				for(StringRef lab : nxt_vtx.labels) {
-					errs() << (lab.empty() ? "None" : lab) << "\t";
-					if(lab.empty() || lab.startswith("for")) {
-						continue;
-					}
-					std::vector<struct vertex> vListNei = graphAL.AList.find(lab)->second;
-					graphAL.visited[lab] = true;
-					for(struct vertex vtx : vListNei) {
-						for(StringRef vlab : vtx.labels) {
-							if(vlab.startswith("for")) {
-								continue;
-							}
-							if(graphAL.visited.find(vlab)->second == false)  {
-								vtx_queue.push(vtx);
-								break;
-							}
-						}
-					}
-				}
-			
-		}
-
-		errs() << "\n";
-
-	  }
-	  struct graph convertToGraph(std::map<StringRef, Value*> defs, std::map<StringRef, std::vector<User*>> uses) {
-	 	struct graph graphAL;
-
-		for(std::pair <StringRef, std::vector<User*>>elem : uses) {
-			StringRef lab = elem.first;
-			std::vector<User *> ulist = elem.second;
-			std::vector<struct vertex> neighVs;
-			for(User *us : ulist) {
-				std::vector<StringRef> opLabs;
-				for(auto op: us->operand_values()) {
-					if(!op->hasName() || op->getName() == lab) {
-						continue;
-					}
-					opLabs.push_back(op->getName());
-				}
-				if(us->hasName()) {
-					opLabs.push_back(us->getName());
-				}
-
-				struct vertex vtr;
-				vtr.instr = us;
-				vtr.labels = opLabs;
-				neighVs.push_back(vtr);
-			}
-			graphAL.AList.insert(std::pair<StringRef, std::vector<struct vertex>>(lab, neighVs));
-
-		}
-
-		return graphAL;
-	  }
 
 	  void addToPath(StringRef src, Instruction *inst, std::vector<StringRef> destV, pathElems &allPaths ) {
 	  	if(src.empty()) {
@@ -235,7 +135,7 @@ namespace {
 		  for(std::pair<StringRef, bool> elem : visited) {
 		  	errs() << " " << elem.first;
 		  }
-		  errs() << "\nAll Paths impacting the address in this instruction are\n";
+		  errs() << "\nAll paths impacting the address in this instruction are\n";
 		  printPaths(allPaths);
 	  }
 	  bool runOnFunction(Function &F) override {
@@ -244,7 +144,6 @@ namespace {
 		LoadCounter = 0;
 		StoreCounter = 0;
 		std::map<StringRef, Value*> defsMap;
-		std::map<StringRef, std::vector<User *>> usesMap;
 		for(inst_iterator itr = inst_begin(F), etr = inst_end(F); itr != etr; itr++) {
 			InstCounter++;
 
@@ -262,15 +161,6 @@ namespace {
 					continue;
 				}
 				defsMap.insert(std::pair<StringRef, Value*>(v->getName(), v));
-				//errs() << *v << " with name "<< v->getName() << " with type "<< *(v->getType()) << " Uses are: ";
-				std::vector<User*> users;
-				for(use_iter : v->uses() ) {
-					User *ut = use_iter.getUser();
-					users.push_back(ut);
-					//errs() << *ut  << " " ;
-				}
-				usesMap.insert(std::pair<StringRef, std::vector<User *>>(v->getName(), users));
-				//errs() << "Uses ends ";
 			}
 
 			if(llvm::isa <llvm::StoreInst> (*itr)) {
@@ -283,40 +173,6 @@ namespace {
 			errs() << "Instruction is " << *itr << "\n";
 
       		}
-
-		
-		
-		/*errs() << "Defs in this function are :\n";
-		for(std::pair <StringRef, Value*>elem : defsMap) {
-			errs() << "Name is " << elem.first << " Instruction defining is " << *elem.second << "\n"; 
-		}*/
-		
-		/*
-		errs() << "Uses in this function are :\n";
-		for(std::pair <StringRef, std::vector<User*>>elem : usesMap) {
-			errs() << "Name is " << elem.first << " Instruction using are ";
-			std::vector<User*> users = elem.second; 
-			for(auto& it : users) {
-				errs() << *it << " ";
-			}
-			errs() << "\n";
-		}*/
-
-		struct graph graphAL = convertToGraph(defsMap, usesMap);
-		
-		//printGraph(graphAL);
-
-		//printClosure(phi->getName(), graphAL, defsMap.find(phi->getName())->second);
-		//printClosure("mul", graphAL, defsMap.find("mul")->second);
-		/*for(std::pair <StringRef, Value*>elem : defsMap) {
-			printClosure(elem.first, graphAL, elem.second);
-		}*/
-
-		/*
-		StringRef it_lab = "i";
-		errs() << "Iterator is " << *defsMap[it_lab] << "\n";
-		printClosure(it_lab, graphAL, defsMap[it_lab]);
-		*/
 
 		LoopCounter = 0;
 		LoopInfo &Li = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
