@@ -28,6 +28,13 @@ namespace {
 	Instruction *inst;
   };
 
+  struct LoopData {
+  	int initV;
+	int stepV;
+	int finalV;
+	StringRef indVar;
+  };
+
   typedef std::vector<std::vector<pathElem>> pathElems;
   struct Assn1Loop : public FunctionPass {
   		
@@ -91,7 +98,62 @@ namespace {
 			errs() << "\n";
 		}
 	  }
-	  void reverseClosure(llvm::BasicBlock::iterator &inst, std::map<StringRef, Value*> defsMap) {
+	  StringRef checkAlloc(std::vector<pathElem> &pathV, unsigned int nextpos) {
+	  	StringRef alloc;
+		while(nextpos < pathV.size()) {
+			pathElem elem = pathV[nextpos];
+			if(llvm::isa<llvm::AllocaInst> (*elem.inst)) {
+				Value *v = cast<Value>(elem.inst);
+				alloc = v->getName();
+				break;
+			}
+			nextpos++;
+		}
+
+
+		return alloc;
+	  }
+
+	  StringRef checkInd(std::vector<pathElem> &pathV, unsigned int nextpos) {
+	  	StringRef ind;
+		while(nextpos < pathV.size()) {
+			pathElem elem = pathV[nextpos];
+			if(llvm::isa<llvm::PHINode>(*elem.inst)) {
+				Value *v = cast<Value>(elem.inst);
+				ind = v->getName();
+				break;
+			}
+			nextpos++;
+		}
+		return ind;
+	  }
+
+	  void analyzePathLoop(pathElems &allPaths, struct LoopData &loopData, llvm::BasicBlock::iterator &inst) {
+	  	StringRef alloc, indVar;
+		for(std::vector<pathElem> pathV : allPaths) {
+			unsigned int nextpos = 0;
+			for(pathElem elem : pathV) {
+				nextpos++;
+				if(llvm::isa<llvm::GetElementPtrInst> (*elem.inst)) {
+					if(elem.inst->getOperand(0)->getName() == elem.lab) {
+						alloc = checkAlloc(pathV, nextpos);
+					}
+					else if(elem.inst->getOperand(2)->getName() == elem.lab) {
+						indVar = checkInd(pathV, nextpos);
+					}
+				}
+
+			}
+		}
+
+		if(!alloc.empty() && !indVar.empty()) {
+			if(indVar == loopData.indVar) {
+				errs() << *inst << " defines a stream accessing the array " << alloc << " starting from location " << loopData.initV << " going upto " << loopData.finalV << " with the step value of " << loopData.stepV << "\n"; 
+			}
+		}
+
+	  }
+	  pathElems reverseClosure(llvm::BasicBlock::iterator &inst, std::map<StringRef, Value*> defsMap) {
 	  	  std::queue<StringRef> labQ;
 		  pathElems allPaths;
 		  std::map <StringRef, bool> visited;
@@ -131,12 +193,15 @@ namespace {
 			  addToPath(v, inst2, destV, allPaths);
 			  
 		  }
-		  errs() << "All labels impacting the address in the instruction " << *inst << " are: ";
+		  /*errs() << "All labels impacting the address in the instruction " << *inst << " are: ";
 		  for(std::pair<StringRef, bool> elem : visited) {
 		  	errs() << " " << elem.first;
 		  }
 		  errs() << "\nAll paths impacting the address in this instruction are\n";
 		  printPaths(allPaths);
+		  */
+		  
+		  return allPaths;
 	  }
 	  bool runOnFunction(Function &F) override {
 		errs() << "\nFunction name : " << F.getName() << "\n";
@@ -176,37 +241,45 @@ namespace {
 
 		LoopCounter = 0;
 		LoopInfo &Li = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
+		PHINode *phinode;
+		struct LoopData loopData;
 		for(Loop *lit : Li) {
 			LoopCounter++;
-			PHINode *phinode;
-			/*phinode = autotune::getInductionVariable(lit);
-			errs() << *phinode << "\n";
-			*/
+
 			ScalarEvolution &SE = getAnalysis<ScalarEvolutionWrapperPass>().getSE(); 
 
 			phinode = lit->getInductionVariable(SE);
-			errs() << *phinode << "\n";
+			//errs() << *phinode << "\n";
+
+			Value* vInd = cast<Value>(phinode);
+			loopData.indVar = vInd->getName();
+
 			llvm::Optional<Loop::LoopBounds> lbs = lit->getBounds(SE);
 			Value& vInit = (*lbs).getInitialIVValue();
 			ConstantInt *Ci;
 			Ci = cast<ConstantInt>(&vInit);
-			errs() << "Initialization of loop is " << Ci->getSExtValue() << "\n";
+			loopData.initV = Ci->getSExtValue(); 
+			//errs() << "Initialization of loop is " << loopData.initV << "\n";
 
 			Value& vFinal = (*lbs).getFinalIVValue();
 			Ci = cast<ConstantInt>(&vFinal);
-			errs() << "Loop upper bound / goes upto " << Ci->getSExtValue() << "\n";
+			loopData.finalV = Ci->getSExtValue(); 
+			//errs() << "Loop upper bound / goes upto " << loopData.finalV << "\n";
 
 			Value* step = (*lbs).getStepValue();
 			Ci = cast<ConstantInt>(step);
-			errs() << "Step value of the loop is " << Ci->getSExtValue() << "\n";
+			loopData.stepV = Ci->getSExtValue(); 
+			//errs() << "Step value of the loop is " << loopData.stepV << "\n";
 
+			
 			for(BasicBlock *BB : lit->getBlocks())
                 	{
-                    		errs() << "basicb name: "<< BB->getName() <<"\n";
+                    		//errs() << "basicb name: "<< BB->getName() <<"\n";
 				if(BB->getName().startswith("for.body")) {
 					for (BasicBlock::iterator itr = BB->begin(), e = BB->end(); itr != e; ++itr) {
 						if(llvm::isa <llvm::StoreInst> (*itr) || llvm::isa<llvm::LoadInst> (*itr)) {
-							reverseClosure(itr, defsMap);										
+							pathElems allPaths = reverseClosure(itr, defsMap);
+							analyzePathLoop(allPaths, loopData, itr);
 						}
 					}
 					
