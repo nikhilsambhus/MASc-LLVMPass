@@ -103,6 +103,9 @@ namespace {
 	  	StringRef alloc;
 		while(nextpos < pathV.size()) {
 			pathElem elem = pathV[nextpos];
+			if(llvm::isa<llvm::GetElementPtrInst> (*elem.inst)) {
+				break;
+			}
 			if(llvm::isa<llvm::AllocaInst> (*elem.inst)) {
 				Value *v = cast<Value>(elem.inst);
 				alloc = v->getName();
@@ -119,9 +122,6 @@ namespace {
 	  	StringRef ind;
 		while(nextpos < pathV.size()) {
 			pathElem elem = pathV[nextpos];
-			if(llvm::isa<llvm::GetElementPtrInst> (*elem.inst)) {
-				break;
-			}
 			if(llvm::isa<llvm::PHINode>(*elem.inst)) {
 				Value *v = cast<Value>(elem.inst);
 				ind = v->getName();
@@ -237,8 +237,8 @@ namespace {
 		  	errs() << " " << elem.first;
 		  }
 		  errs() << "\nAll paths impacting the address in this instruction are\n";
-		  printPaths(allPaths);
 		  */
+		  printPaths(allPaths);
 		  
 		  return allPaths;
 	  }
