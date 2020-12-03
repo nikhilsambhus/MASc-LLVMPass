@@ -11,9 +11,11 @@
 #include "llvm/Analysis/ScalarEvolution.h"
 #include "llvm/Support/raw_ostream.h"
 #include "LoopUtils.h"
+#include "DervInd.h"
 #include "llvm/IR/InstIterator.h"
 #include <queue>
 using namespace llvm;
+using namespace std;
 
 #define DEBUG_TYPE "assn1"
 STATISTIC(FuncCounter, "Counts number of functions greeted");
@@ -30,6 +32,7 @@ namespace {
   };
 
   struct LoopData {
+  	Loop *lp;
   	int initV;
 	int stepV;
 	int finalV;
@@ -192,31 +195,36 @@ namespace {
 		}
 
 	  }
-	  pathElems reverseClosure(llvm::BasicBlock::iterator &inst, std::map<StringRef, Value*> defsMap) {
+	  bool reverseClosure(llvm::BasicBlock::iterator &inst, std::map<StringRef, Value*> defsMap, StringRef &alloc, char *type, std::vector<StringRef> *visits) {
 	  	  std::queue<StringRef> labQ;
-		  pathElems allPaths;
+		  int phiCounter = 0;
 		  std::map <StringRef, bool> visited;
-		  std::vector<StringRef> destV;
 		  Value *v;
 		  if(llvm::isa <llvm::StoreInst> (*inst)) {
 		  	v = inst->getOperand(1);
+			strcpy(type, "store");
 		  }
 		  else if(llvm::isa<llvm::LoadInst> (*inst)) {
 		  	v = inst->getOperand(0);
+			strcpy(type, "load");
 		  }
 		  labQ.push(v->getName());
-		  destV.push_back(v->getName());
 		  visited[v->getName()] = true;
-
-		  StringRef empty;
-		  addToPath(empty, cast<Instruction>(inst), destV, allPaths);
 
 		  while(!labQ.empty()) {
 		  	  StringRef v = labQ.front();
+			  visits->push_back(v);
 			  //errs() << v << " defined by " << *defsMap[v] << "\n";
 			  labQ.pop();
 			  Instruction* inst2 = cast<Instruction>(defsMap[v]);
-			  destV.clear();
+			  if(llvm::isa <llvm::AllocaInst> (*inst2)) {
+				  alloc = v;
+			  }
+			  else if(llvm::isa<llvm::PHINode>(*inst2)) {
+				  phiCounter++;
+			  }
+
+
 			  for(Use &U : inst2->operands()) {
 			  	 Value *v = U.get();
 				 if(v->getName().startswith("for") == true || v->getName().empty()) {
@@ -224,13 +232,10 @@ namespace {
 				 }
 				 if(visited.find(v->getName()) == visited.end()) {
 				 	labQ.push(v->getName());
-			  		destV.push_back(v->getName());
 					visited[v->getName()] = true;
 				 }
 			  }
 
-			  addToPath(v, inst2, destV, allPaths);
-			  
 		  }
 		  /*errs() << "All labels impacting the address in the instruction " << *inst << " are: ";
 		  for(std::pair<StringRef, bool> elem : visited) {
@@ -238,9 +243,13 @@ namespace {
 		  }
 		  errs() << "\nAll paths impacting the address in this instruction are\n";
 		  */
-		  printPaths(allPaths);
 		  
-		  return allPaths;
+		  if((alloc.empty()) || (phiCounter == 0)) {
+		  	return false;
+		  }
+		  else {
+		  	return true;
+		  }
 	  }
 
 	  struct LoopData parseLoop(Loop *li, ScalarEvolution &SE) {
@@ -270,7 +279,28 @@ namespace {
 		  loopData.stepV = Ci->getSExtValue(); 
 		  //errs() << "Step value of the loop is " << loopData.stepV << "\n";
 
+		  loopData.lp = li;
+
 		  return loopData;
+
+	  }
+	  void analyzeStat(std::vector<struct LoopData> &loopDataV, StringRef &alloc, char* type, ScalarEvolution &SE, std::vector<StringRef> &visits, std::map<StringRef, Value*> &defsMap) {
+		  errs() << "Accessing " << alloc << " of type " << type << "\n";
+		  for(struct LoopData ldata : loopDataV) {
+			  map<Value*, tuple<Value*, int, int>> IndVarMap = getDerived(loopDataV[0].lp, ldata.lp, SE);
+			  for(StringRef visit : visits) {
+				  if(IndVarMap.find(defsMap[visit]) != IndVarMap.end()) {
+					  errs() << " with " << visit << " as the dervied induction variable considering innermost loop's base induction variable is " << ldata.indVar;
+					  tuple<Value*, int, int> tup = IndVarMap[defsMap[visit]];
+					  Value *base = get<0>(tup);
+					  int scaleV = get<1>(tup);
+					  int constV = get<2> (tup);
+					  errs() << " dervied from base variable " << base->getName() << " with scale of " << scaleV << " and constant of " << constV << "\n";
+					  break;
+				  }
+			  }
+		  }
+
 
 	  }
 	  bool runOnFunction(Function &F) override {
@@ -305,7 +335,7 @@ namespace {
 				LoadCounter++;
 			}
 
-			errs() << "Instruction is " << *itr << "\n";
+			//errs() << "Instruction is " << *itr << "\n";
 
       		}
 
@@ -320,20 +350,24 @@ namespace {
 			loopData = parseLoop(lit, SE);		
 			loopDataV.push_back(loopData);
 			std::unique_ptr<LoopNest> lnest = LoopNest::getLoopNest(*lit, SE); 
-			if(lnest->getNumLoops() == 2) {
-				Loop *lin = lnest->getInnermostLoop();
+			Loop *lin = lit;
+			for(unsigned int i = 1; i < lnest->getNumLoops(); i++) {
+				lin = lnest->getLoop(i);
 				loopData = parseLoop(lin, SE);		
 				loopDataV.push_back(loopData);
-
 			}
 			for(BasicBlock *BB : lit->getBlocks())
                 	{
                     		//errs() << "basicb name: "<< BB->getName() <<"\n";
-				if(BB->getName().startswith("for.body")) {
+				if(true) { //BB->getName().startswith("for.body")) {
 					for (BasicBlock::iterator itr = BB->begin(), e = BB->end(); itr != e; ++itr) {
 						if(llvm::isa <llvm::StoreInst> (*itr) || llvm::isa<llvm::LoadInst> (*itr)) {
-							pathElems allPaths = reverseClosure(itr, defsMap);
-							analyzePathLoop(allPaths, loopDataV, itr);
+							StringRef alloc;
+							char type[16];
+							std::vector<StringRef> visits;
+							if(reverseClosure(itr, defsMap, alloc, type, &visits) == true) {
+								analyzeStat(loopDataV, alloc, type, SE, visits, defsMap);
+							}
 						}
 					}
 					

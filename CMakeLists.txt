@@ -13,6 +13,7 @@ endif()
 add_llvm_library( LLVMAssn1 MODULE BUILDTREE_ONLY
   Assn1.cpp
   StatDyn1.cpp
+  DervInd.cpp
   Skeleton.cpp
   LoopUtils.cpp
 
