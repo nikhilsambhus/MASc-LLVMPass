@@ -37,164 +37,23 @@ namespace {
 	int stepV;
 	int finalV;
 	StringRef indVar;
+
+	int scaleV;
+	int constV;
+	int modInd;
+	int divInd;
   };
 
-  typedef std::vector<std::vector<pathElem>> pathElems;
-  struct Assn1Loop : public FunctionPass {
+  struct Stat1Loop : public FunctionPass {
   		
 	  static char ID;
-	  Assn1Loop() : FunctionPass(ID) {}
+	  Stat1Loop() : FunctionPass(ID) {}
 	  
 	  virtual void getAnalysisUsage(AnalysisUsage& AU) const override {
         	AU.addRequired<LoopInfoWrapperPass>();
 		AU.addRequired<ScalarEvolutionWrapperPass>();
     	  }
 
-	  void addToPath(StringRef src, Instruction *inst, std::vector<StringRef> destV, pathElems &allPaths ) {
-	  	if(src.empty()) {
-			for(StringRef dest: destV) {
-				std::vector<pathElem> pathV;
-				pathElem elem;
-				elem.lab = dest;
-				elem.inst = inst;
-				pathV.push_back(elem);
-				allPaths.push_back(pathV);
-			}
-		}
-		else {
-			//search the path vector ending with source label
-			//Replicate it for number of destination labels adding destination pathElem node
-			for(std::vector<pathElem> &pathV : allPaths) {
-				pathElem cmp = pathV.back();
-				if(src == cmp.lab) {
-					pathElem elem;
-					if(destV.empty()) {
-						elem.lab = "";
-					}
-					else {
-						elem.lab = destV.back();
-						destV.pop_back();
-					}
-					elem.inst = inst;
-					pathV.push_back(elem);
-					for(StringRef dest: destV) {
-						std::vector<pathElem> cpPathV;
-						copy(pathV.begin(), pathV.end() - 1, back_inserter(cpPathV));
-						pathElem elem;
-						elem.inst = inst;
-						elem.lab = dest;
-						cpPathV.push_back(elem);
-						allPaths.push_back(cpPathV);
-					}
-				}
-			}
-		}
-	  }
-
-	  void printPaths(pathElems &allPaths) {
-		int count = 1;
-		for(std::vector<pathElem> pathV : allPaths) {
-			errs() << "Path no. " << count << " ";
-			for(pathElem elem: pathV) {
-				errs() << *(elem.inst) << " dest label is: " << elem.lab << "\t";
-			}
-			count++;
-			errs() << "\n";
-		}
-	  }
-	  StringRef checkAlloc(std::vector<pathElem> &pathV, unsigned int nextpos) {
-	  	StringRef alloc;
-		while(nextpos < pathV.size()) {
-			pathElem elem = pathV[nextpos];
-			if(llvm::isa<llvm::GetElementPtrInst> (*elem.inst)) {
-				break;
-			}
-			if(llvm::isa<llvm::AllocaInst> (*elem.inst)) {
-				Value *v = cast<Value>(elem.inst);
-				alloc = v->getName();
-				break;
-			}
-			nextpos++;
-		}
-
-
-		return alloc;
-	  }
-
-	  StringRef checkInd(std::vector<pathElem> &pathV, unsigned int nextpos) {
-	  	StringRef ind;
-		while(nextpos < pathV.size()) {
-			pathElem elem = pathV[nextpos];
-			if(llvm::isa<llvm::PHINode>(*elem.inst)) {
-				Value *v = cast<Value>(elem.inst);
-				ind = v->getName();
-				break;
-			}
-			nextpos++;
-		}
-		return ind;
-	  }
-
-	  void analyzePathLoop(pathElems &allPaths, std::vector<struct LoopData> &loopDataV, llvm::BasicBlock::iterator &inst) {
-	  	StringRef alloc;
-		std::map<StringRef, int> indVarMap;
-		for(std::vector<pathElem> pathV : allPaths) {
-			unsigned int nextpos = 0;
-			unsigned int allocEptrCnt = 0;
-			for(pathElem elem : pathV) {
-				nextpos++;
-				if(llvm::isa<llvm::GetElementPtrInst> (*elem.inst)) {
-					if(elem.inst->getOperand(0)->getName() == elem.lab) {
-						StringRef ret;
-						ret = checkAlloc(pathV, nextpos);
-						if(ret.empty()) {
-							allocEptrCnt++;
-						}
-						else {
-							alloc = ret;
-						}
-					}
-					else if(elem.inst->getOperand(2)->getName() == elem.lab) {
-						StringRef indVar = checkInd(pathV, nextpos);
-						if(allocEptrCnt) {
-							indVarMap[indVar] = 0;
-						}
-						else {
-							indVarMap[indVar] = 1;
-						}
-						
-					}
-				}
-
-			}
-		}
-
-		if(!alloc.empty() && !indVarMap.empty()) {
-			if(indVarMap.size() == 1) { //singple loop logic
-				if(indVarMap.find(loopDataV[0].indVar) != indVarMap.end()) {
-					errs() << *inst << " defines a stream accessing the array " << alloc << " starting from location " << loopDataV[0].initV << " going upto " << loopDataV[0].finalV << " with the step value of " << loopDataV[0].stepV << "\n"; 
-				}
-			}
-			else if(indVarMap.size() == 2) { //nested loop, total 2 loops logic
-				for(struct LoopData loopData : loopDataV) {
-					if(indVarMap.find(loopData.indVar) == indVarMap.end()) {
-						return;
-					}
-				}
-				//induction variables found in paths match the oncs found in loops
-				errs() << *inst << " defines a stream accessing the 2D array " << alloc << " with ";
-				for(std::pair<StringRef, int> indVar : indVarMap) {
-					errs() << indVar.first << " as the " << (indVar.second == 0 ? "first index " : "second index ");
-				}
-				errs() << "\n";
-				for(struct LoopData loopData : loopDataV) {
-					errs() << loopData.indVar << " goes from " << loopData.initV << " to " << loopData.finalV << " with a step value of " << loopData.stepV << " " ;
-				}
-				errs() << loopDataV[1].indVar << " is the inner loop induction variable\n";
-			}
-		}
-
-	  }
 	  bool reverseClosure(llvm::BasicBlock::iterator &inst, std::map<StringRef, Value*> defsMap, StringRef &alloc, char *type, std::vector<StringRef> *visits) {
 	  	  std::queue<StringRef> labQ;
 		  int phiCounter = 0;
@@ -241,7 +100,6 @@ namespace {
 		  for(std::pair<StringRef, bool> elem : visited) {
 		  	errs() << " " << elem.first;
 		  }
-		  errs() << "\nAll paths impacting the address in this instruction are\n";
 		  */
 		  
 		  if((alloc.empty()) || (phiCounter == 0)) {
@@ -284,8 +142,16 @@ namespace {
 		  return loopData;
 
 	  }
+	  void computeStream(StringRef &alloc, char *type, std::vector<struct LoopData> &compLoopV) {
+	  	std::reverse(std::begin(compLoopV), std::end(compLoopV));
+	  	for(struct LoopData ldata: compLoopV) {
+			errs() << ldata.indVar << " ";
+		}
+		errs() << "\n";
+	  }
 	  void analyzeStat(std::vector<struct LoopData> &loopDataV, StringRef &alloc, char* type, ScalarEvolution &SE, std::vector<StringRef> &visits, std::map<StringRef, Value*> &defsMap) {
 		  errs() << "Accessing " << alloc << " of type " << type << "\n";
+		  std::vector<struct LoopData> compLoopV;
 		  for(struct LoopData ldata : loopDataV) {
 			  map<Value*, tuple<Value*, int, int>> IndVarMap = getDerived(loopDataV[0].lp, ldata.lp, SE);
 			  for(StringRef visit : visits) {
@@ -295,14 +161,19 @@ namespace {
 					  Value *base = get<0>(tup);
 					  int scaleV = get<1>(tup);
 					  int constV = get<2> (tup);
+					  struct LoopData lp = ldata;
+					  lp.scaleV = scaleV;
+					  lp.constV = constV;
+					  compLoopV.push_back(lp);
 					  errs() << " dervied from base variable " << base->getName() << " with scale of " << scaleV << " and constant of " << constV << "\n";
 					  break;
 				  }
 			  }
 		  }
 
-
+		  computeStream(alloc, type, compLoopV);
 	  }
+
 	  bool runOnFunction(Function &F) override {
 		errs() << "\nFunction name : " << F.getName() << "\n";
 		InstCounter = 0;
@@ -343,6 +214,7 @@ namespace {
 		LoopInfo &Li = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
 		struct LoopData loopData;
 		ScalarEvolution &SE = getAnalysis<ScalarEvolutionWrapperPass>().getSE(); 
+		std::map<StringRef, bool> allocVMap;
 		for(Loop *lit : Li) {
 			std::vector<struct LoopData> loopDataV;
 			LoopCounter++;
@@ -366,6 +238,10 @@ namespace {
 							char type[16];
 							std::vector<StringRef> visits;
 							if(reverseClosure(itr, defsMap, alloc, type, &visits) == true) {
+								if(allocVMap.find(alloc) != allocVMap.end()) {
+									continue;
+								}
+								allocVMap[alloc] = true;
 								analyzeStat(loopDataV, alloc, type, SE, visits, defsMap);
 							}
 						}
@@ -383,5 +259,5 @@ namespace {
   };
 }
 
-char Assn1Loop::ID = 0;
-static RegisterPass<Assn1Loop> Y("assn1loop", "Assignment 1 Pass");
+char Stat1Loop::ID = 0;
+static RegisterPass<Stat1Loop> Y("stat1loop", "Static analysis 1 in loop pass");
