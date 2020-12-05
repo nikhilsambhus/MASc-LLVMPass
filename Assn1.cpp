@@ -142,17 +142,40 @@ namespace {
 		  return loopData;
 
 	  }
-	  void computeStream(StringRef &alloc, char *type, std::vector<struct LoopData> &compLoopV) {
-	  	std::reverse(std::begin(compLoopV), std::end(compLoopV));
-	  	for(struct LoopData ldata: compLoopV) {
-			errs() << ldata.indVar << " ";
+	  void computeStream(StringRef &alloc, char *type, std::vector<struct LoopData> &allLoopData, std::vector<struct LoopData *> &compLoopV) {
+		int factor = 1;
+	  	for(int i = allLoopData.size() - 1; i >= 0; i--) {
+			struct LoopData *ldata = &allLoopData[i];
+			ldata->divInd = factor;
+			ldata->modInd = ldata->finalV;
+
+			factor = factor * ldata->finalV;
+			//errs() << ldata.indVar << " " << ldata.scaleV << " " << ldata.constV << " " << ldata.finalV << " " << ldata.divInd << " " << ldata.modInd << "\t";
 		}
-		errs() << "\n";
+		//errs() << factor << "\n";
+		char *name = &alloc.str()[0];
+		char fname[128];
+		strcpy(fname, name);
+		strcat(fname, "_");
+		strcat(fname, type);
+		strcat(fname, ".stream");
+		FILE *fp = fopen(fname , "w");
+		for(int count = 0; count < factor; count++) {
+			int pos = 0;
+			for(struct LoopData *ldata : compLoopV) {
+				int indV = (count / ldata->divInd) % ldata->modInd;
+				//errs() << count << " " << ldata.divInd << " " << ldata.modInd << " " << indV << "\n";
+				pos = pos + indV * ldata->scaleV;
+				pos = pos + ldata->constV;
+			}
+			fprintf(fp, "%d\n", pos);
+		}
+		fclose(fp);
 	  }
 	  void analyzeStat(std::vector<struct LoopData> &loopDataV, StringRef &alloc, char* type, ScalarEvolution &SE, std::vector<StringRef> &visits, std::map<StringRef, Value*> &defsMap) {
 		  errs() << "Accessing " << alloc << " of type " << type << "\n";
-		  std::vector<struct LoopData> compLoopV;
-		  for(struct LoopData ldata : loopDataV) {
+		  std::vector<struct LoopData*> compLoopV;
+		  for(struct LoopData &ldata : loopDataV) {
 			  map<Value*, tuple<Value*, int, int>> IndVarMap = getDerived(loopDataV[0].lp, ldata.lp, SE);
 			  for(StringRef visit : visits) {
 				  if(IndVarMap.find(defsMap[visit]) != IndVarMap.end()) {
@@ -161,9 +184,9 @@ namespace {
 					  Value *base = get<0>(tup);
 					  int scaleV = get<1>(tup);
 					  int constV = get<2> (tup);
-					  struct LoopData lp = ldata;
-					  lp.scaleV = scaleV;
-					  lp.constV = constV;
+					  struct LoopData *lp = &ldata;
+					  ldata.scaleV = scaleV;
+					  ldata.constV = constV;
 					  compLoopV.push_back(lp);
 					  errs() << " dervied from base variable " << base->getName() << " with scale of " << scaleV << " and constant of " << constV << "\n";
 					  break;
@@ -171,7 +194,7 @@ namespace {
 			  }
 		  }
 
-		  computeStream(alloc, type, compLoopV);
+		  computeStream(alloc, type, loopDataV, compLoopV);
 	  }
 
 	  bool runOnFunction(Function &F) override {
