@@ -340,11 +340,30 @@ namespace {
 				prevpos = curpos;
 			}
 		}
-		errs() << "Reuse analysis of " << sInfo.name << ":\n";
+		errs() << "Reuse analysis of " << sInfo.name << " : ";
 
+		float total = 0.0;
+		int cnt16, cnt100;
+		cnt16 = cnt100 = 0;
 		for(auto &tup : distReuseMap) {
-			errs() << tup.first << " reuse distance occurs " << tup.second << " times \n"; 
+			//errs() << tup.first << " reuse distance occurs " << tup.second << " times \n"; 
+			total += tup.second;
+			if(tup.first < 16) {
+				cnt100 += tup.second;
+				cnt16 += tup.second;
+			}
+			else if(tup.first < 100) {
+				cnt100 += tup.second;
+			}
 		}
+
+		if(total > 0.0) {
+			errs() << (int)((cnt16 * 100)/total) << " percent accesses are within 16,  " << (int)((cnt100 * 100)/total) << " percent accesses are within 100 \n";
+		}
+		else {
+			errs() << " No reuse in the stream\n";
+		}
+
 
 	  }
 	  void analyzeStat(std::vector<struct LoopData> &loopDataV, StringRef &alloc, StringRef &func, char* type, ScalarEvolution &SE, std::vector<StringRef> &visits, std::map<StringRef, Value*> &defsMap) {
@@ -373,7 +392,7 @@ namespace {
 		 sInfo = computeStream(func, alloc, type, loopDataV, compLoopV);
 		 exprStride(loopDataV, compLoopV, sInfo.name);
 		 //enumStride(sInfo);
-		 //enumReuse(sInfo);
+		 enumReuse(sInfo);
 	  }
 
 	  bool runOnFunction(Function &F) override {
