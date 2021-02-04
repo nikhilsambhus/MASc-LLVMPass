@@ -44,6 +44,11 @@ namespace {
 	int divInd;
   };
 
+  struct streamInfo {
+  	char *name;
+	std::vector<int> addrs;
+  };
+
   struct Stat1Loop : public FunctionPass {
   		
 	  static char ID;
@@ -142,7 +147,34 @@ namespace {
 		  return loopData;
 
 	  }
-	  void computeStream(StringRef &alloc, char *type, std::vector<struct LoopData> &allLoopData, std::vector<struct LoopData *> &compLoopV) {
+
+	  void exprStride(std::vector<struct LoopData> &allLoopData, std::vector<struct LoopData *> &compLoopV, char *fname) {
+		int factor = 1;
+		for(int i = compLoopV.size() - 1; i >= 0; i--) {
+			struct LoopData *ldata = compLoopV[i];
+			ldata->divInd = factor;
+			ldata->modInd = ldata->finalV;
+
+			factor = factor * ldata->finalV;
+		}
+
+		int stride = 1, j = compLoopV.size() - 1;
+		bool flag = false;
+		for(int i = allLoopData.size() - 1; i >= 0; i--) {
+			if(j >= 0 && compLoopV[j] == &allLoopData[i] && compLoopV[j]->scaleV == compLoopV[j]->divInd) {
+				stride = stride * compLoopV[j]->finalV;
+				j--;
+				flag = true;
+			}
+			else if(flag == true) {
+				break;
+			}
+		}
+
+		errs() << "Based on expression analysis " << fname << " has continuous strides of size " << stride << "\n";
+		
+	  }
+	  struct streamInfo computeStream(StringRef &func, StringRef &alloc, char *type, std::vector<struct LoopData> &allLoopData, std::vector<struct LoopData *> &compLoopV) {
 		int factor = 1;
 	  	for(int i = allLoopData.size() - 1; i >= 0; i--) {
 			struct LoopData *ldata = &allLoopData[i];
@@ -150,29 +182,172 @@ namespace {
 			ldata->modInd = ldata->finalV;
 
 			factor = factor * ldata->finalV;
-			//errs() << ldata.indVar << " " << ldata.scaleV << " " << ldata.constV << " " << ldata.finalV << " " << ldata.divInd << " " << ldata.modInd << "\t";
 		}
 		//errs() << factor << "\n";
-		char *name = &alloc.str()[0];
-		char fname[128];
+		char *name = &func.str()[0];
+		char *fname = (char *)malloc(256);
 		strcpy(fname, name);
+		strcat(fname, "_");
+		name = &alloc.str()[0];
+		strcat(fname, name);
 		strcat(fname, "_");
 		strcat(fname, type);
 		strcat(fname, ".stream");
-		FILE *fp = fopen(fname , "w");
+		//FILE *fp = fopen(fname , "w");
+
+		struct streamInfo sInfo;
+		sInfo.name = fname;
 		for(int count = 0; count < factor; count++) {
 			int pos = 0;
+			std::vector<int> indList;
 			for(struct LoopData *ldata : compLoopV) {
 				int indV = (count / ldata->divInd) % ldata->modInd;
 				//errs() << count << " " << ldata.divInd << " " << ldata.modInd << " " << indV << "\n";
+				indList.push_back(indV);
 				pos = pos + indV * ldata->scaleV;
 				pos = pos + ldata->constV;
 			}
-			fprintf(fp, "%d\n", pos);
+			sInfo.addrs.push_back(pos);
+			/*fprintf(fp, "%d", pos);
+			for(int indV : indList) {
+				fprintf(fp, " %d", indV);
+			}
+			fprintf(fp, "\n");*/
 		}
-		fclose(fp);
+		//fclose(fp);
+		return sInfo;
 	  }
-	  void analyzeStat(std::vector<struct LoopData> &loopDataV, StringRef &alloc, char* type, ScalarEvolution &SE, std::vector<StringRef> &visits, std::map<StringRef, Value*> &defsMap) {
+
+	  void enumStride(struct streamInfo &sInfo) {
+	  	int prevpos = sInfo.addrs[0];
+		int curpos;
+		int diff;
+		int conCt = 0;
+		std::map<int, int> oneStrideMap;
+		std::map<int, std::vector<int>> jumpMap;
+		int strideIn = 0;
+		for(unsigned i = 1; i < sInfo.addrs.size(); i++) {
+			curpos = sInfo.addrs[i];
+			diff = curpos - prevpos;
+			if(diff == 1) {
+				conCt++;
+			}
+			else if(diff == 0) {
+				continue;
+			}
+			else if(conCt != 0) {
+				conCt++;
+				if(oneStrideMap.find(conCt) != oneStrideMap.end()) {
+					oneStrideMap[conCt] = oneStrideMap[conCt] + 1;
+				}
+				else {
+					oneStrideMap[conCt] = 1;
+				}
+				conCt = 0;
+
+
+				if(jumpMap.find(diff) != jumpMap.end()) {
+					std::vector<int> *posV = &jumpMap[diff];
+					posV->push_back(strideIn);
+				}
+				else {
+					std::vector<int> posV;
+					posV.push_back(strideIn);
+					jumpMap[diff] = posV;
+				}
+
+				strideIn++;
+
+			}
+
+			prevpos = curpos;
+		}
+
+		if(conCt != 0) {
+			conCt++;
+			if(oneStrideMap.find(conCt) != oneStrideMap.end()) {
+				oneStrideMap[conCt] = oneStrideMap[conCt] + 1;
+			}
+			else {
+				oneStrideMap[conCt] = 1;
+			}
+			conCt = 0;
+		}
+
+		errs() << "Stride analysis of " << sInfo.name << " which has total size "<< sInfo.addrs.size() << ":\n";
+		for(auto &tup : oneStrideMap) {
+			errs() << tup.first << " size continuous substream occurs " << tup.second << " times \n"; 
+		}
+
+		errs() << "Jump analysis:\n";
+
+		for(auto &tup : jumpMap) {
+			errs() << "First 20 jumps of " << tup.first << " occur at strides:";
+			int count = 0;
+			for(int pos : tup.second) {
+				errs() << pos << " ";
+				count++;
+				if(count > 20) break;
+			}
+			errs() << "\n";
+		}
+
+
+	  }
+
+	  int calcDist(std::vector<int> &addrs, int start, int end) {
+	  	std::map<int, bool> unqMap;
+		
+		for(int i = start + 1; i < end; i++) {
+			if(unqMap.find(addrs[i]) == unqMap.end()) {
+				unqMap[addrs[i]] = true;
+			}
+		}
+		
+		return unqMap.size();
+	  }
+	  void enumReuse(struct streamInfo &sInfo) {
+	  	std::map<int, std::vector<int>> cacheMap;
+		std::map<int, int> distReuseMap;
+
+
+		int cnt = 0;
+		for(int &curpos : sInfo.addrs) {
+			if(cacheMap.find(curpos) != cacheMap.end()) {
+				std::vector<int>* addrV = &cacheMap[curpos];
+				addrV->push_back(cnt);
+			}
+			else {
+				std::vector<int> addrV;
+				addrV.push_back(cnt);
+				cacheMap[curpos] = addrV;
+			}
+			cnt++;
+		}
+
+		for(auto &cache : cacheMap) {
+			std::vector<int> addrV = cache.second;
+			int prevpos = addrV[0];
+			for(unsigned i  = 1; i < addrV.size(); i++) {
+				int curpos = addrV[i];
+				int dist = calcDist(sInfo.addrs, prevpos, curpos);
+				if(distReuseMap.find(dist) != distReuseMap.end()) {
+					distReuseMap[dist] = distReuseMap[dist] + 1;
+				}
+				else {
+					distReuseMap[dist] = 1;
+				}
+				prevpos = curpos;
+			}
+		}
+		errs() << "Reuse analysis of " << sInfo.name << ":\n";
+
+		for(auto &tup : distReuseMap) {
+			errs() << tup.first << " reuse distance occurs " << tup.second << " times \n"; 
+		}
+
+	  }
+	  void analyzeStat(std::vector<struct LoopData> &loopDataV, StringRef &alloc, StringRef &func, char* type, ScalarEvolution &SE, std::vector<StringRef> &visits, std::map<StringRef, Value*> &defsMap) {
 		  errs() << "Accessing " << alloc << " of type " << type << "\n";
 		  std::vector<struct LoopData*> compLoopV;
 		  for(struct LoopData &ldata : loopDataV) {
@@ -194,7 +369,11 @@ namespace {
 			  }
 		  }
 
-		  computeStream(alloc, type, loopDataV, compLoopV);
+		 struct streamInfo sInfo;
+		 sInfo = computeStream(func, alloc, type, loopDataV, compLoopV);
+		 exprStride(loopDataV, compLoopV, sInfo.name);
+		 //enumStride(sInfo);
+		 //enumReuse(sInfo);
 	  }
 
 	  bool runOnFunction(Function &F) override {
@@ -258,6 +437,7 @@ namespace {
 					for (BasicBlock::iterator itr = BB->begin(), e = BB->end(); itr != e; ++itr) {
 						if(llvm::isa <llvm::StoreInst> (*itr) || llvm::isa<llvm::LoadInst> (*itr)) {
 							StringRef alloc;
+							StringRef func = F.getName();
 							char type[16];
 							std::vector<StringRef> visits;
 							if(reverseClosure(itr, defsMap, alloc, type, &visits) == true) {
@@ -265,7 +445,7 @@ namespace {
 									continue;
 								}
 								allocVMap[alloc] = true;
-								analyzeStat(loopDataV, alloc, type, SE, visits, defsMap);
+								analyzeStat(loopDataV, alloc, func, type, SE, visits, defsMap);
 							}
 						}
 					}
