@@ -235,7 +235,7 @@ namespace {
 			else if(diff == 0) {
 				continue;
 			}
-			else if(conCt != 0) {
+			else {
 				conCt++;
 				if(oneStrideMap.find(conCt) != oneStrideMap.end()) {
 					oneStrideMap[conCt] = oneStrideMap[conCt] + 1;
@@ -274,24 +274,18 @@ namespace {
 			conCt = 0;
 		}
 
-		errs() << "Stride analysis of " << sInfo.name << " which has total size "<< sInfo.addrs.size() << ":\n";
+		errs() << "Stride analysis based on enumeration of " << sInfo.name << " which has total size "<< sInfo.addrs.size() << ":\n";
 		for(auto &tup : oneStrideMap) {
 			errs() << tup.first << " size continuous substream occurs " << tup.second << " times \n"; 
 		}
 
-		errs() << "Jump analysis:\n";
+		errs() << "Jump analysis: ";
 
 		for(auto &tup : jumpMap) {
-			errs() << "First 20 jumps of " << tup.first << " occur at strides:";
-			int count = 0;
-			for(int pos : tup.second) {
-				errs() << pos << " ";
-				count++;
-				if(count > 20) break;
-			}
-			errs() << "\n";
+			errs() << tup.first << " ";
 		}
 
+		errs() << "\n";
 
 	  }
 
@@ -391,8 +385,8 @@ namespace {
 		 struct streamInfo sInfo;
 		 sInfo = computeStream(func, alloc, type, loopDataV, compLoopV);
 		 exprStride(loopDataV, compLoopV, sInfo.name);
-		 //enumStride(sInfo);
-		 enumReuse(sInfo);
+		 enumStride(sInfo);
+		 //enumReuse(sInfo);
 	  }
 
 	  bool runOnFunction(Function &F) override {
