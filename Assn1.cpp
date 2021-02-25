@@ -60,8 +60,8 @@ namespace {
 		AU.addRequired<ScalarEvolutionWrapperPass>();
     	  }
 
-	  tuple<StringRef, int> extractGEP(Instruction *inst) {
-	  	  tuple<StringRef, int> retTup;
+	  std::map<StringRef, int> extractGEP(Instruction *inst) {
+	  	  std::map<StringRef, int> retMap;
 
 		  GetElementPtrInst *gep = cast<GetElementPtrInst> (inst);
 		  Type *tp = gep->getSourceElementType();
@@ -81,29 +81,34 @@ namespace {
 		  v = inst->getOperand(2);
 		  valQ.push(v);
 		  visited[v->getName()] = true;
-		  StringRef indVar;
+		  std::vector<StringRef> indV;
 		  while(!valQ.empty()) {
 			  v = valQ.front();
 			  valQ.pop();
 
 			  Instruction *inst = cast<Instruction>(v);
 			  if(llvm::isa<llvm::PHINode>(*inst)) {
-			  	indVar = v->getName();
-				break;
+			  	indV.push_back(v->getName());
 			  }
 
 			  for(Use &U : inst->operands()) {
 				  v = U.get();
+				  if(v->getName().startswith("for") == true || v->getName().empty()) {
+					  continue;
+				  }
 				  if(visited.find(v->getName()) == visited.end()) {
 					  valQ.push(v);
 					  visited[v->getName()] = true;
 				  }
 			  }
 		  }
-		  //errs() << "Ind var " << indVar << "\n";
 
-		  retTup = make_tuple(indVar, factor);
-		  return retTup;
+		  for(StringRef ind : indV) {
+		  	//errs() << "Ind var " << ind << "\n";
+			retMap[ind] = factor;
+		  }
+
+		  return retMap;
 	  }
 
 	  bool reverseClosure(llvm::BasicBlock::iterator &inst, std::map<StringRef, Value*> defsMap, StringRef &alloc, char *type, std::vector<StringRef> *visits, std::map<StringRef, int> &hidFact) {
@@ -133,8 +138,8 @@ namespace {
 			  }
 
 			  if(llvm::isa <llvm::GetElementPtrInst> (*inst2)) {
-				  tuple<StringRef, int> tup = extractGEP(inst2);
-				  hidFact[get<0>(tup)] = get<1>(tup); 
+				  std::map<StringRef, int> factM = extractGEP(inst2);
+				  hidFact.insert(factM.begin(), factM.end()); 
 			  }
 			  if(llvm::isa <llvm::AllocaInst> (*inst2)) {
 				  alloc = v;
