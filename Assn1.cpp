@@ -397,22 +397,16 @@ namespace {
 		errs() << "Reuse analysis of " << sInfo.name << " : ";
 
 		float total = 0.0;
-		int cnt16, cnt100;
-		cnt16 = cnt100 = 0;
+		int weight = 0;
 		for(auto &tup : distReuseMap) {
 			//errs() << tup.first << " reuse distance occurs " << tup.second << " times \n"; 
 			total += tup.second;
-			if(tup.first < 16) {
-				cnt100 += tup.second;
-				cnt16 += tup.second;
-			}
-			else if(tup.first < 100) {
-				cnt100 += tup.second;
-			}
+			weight += tup.first * tup.second;
+		
 		}
 
 		if(total > 0.0) {
-			errs() << (int)((cnt16 * 100)/total) << " percent accesses are within 16,  " << (int)((cnt100 * 100)/total) << " percent accesses are within 100 \n";
+			errs() << (int)(weight/total) << " is the weighted reuse distance average\n";
 		}
 		else {
 			errs() << " No reuse in the stream\n";
@@ -447,7 +441,7 @@ namespace {
 		 sInfo = computeStream(func, alloc, type, loopDataV, compLoopV);
 		 exprStride(loopDataV, compLoopV, sInfo.name);
 		 //enumStride(sInfo);
-		 //enumReuse(sInfo);
+		 enumReuse(sInfo);
 	  }
 
 	  bool runOnFunction(Function &F) override {
