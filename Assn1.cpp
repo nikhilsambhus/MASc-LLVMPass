@@ -1,4 +1,5 @@
 #include "llvm/ADT/Statistic.h"
+#include "llvm/Transforms/Scalar.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/IR/Function.h"
 #include "llvm/IR/Module.h"
@@ -59,7 +60,53 @@ namespace {
 		AU.addRequired<ScalarEvolutionWrapperPass>();
     	  }
 
-	  bool reverseClosure(llvm::BasicBlock::iterator &inst, std::map<StringRef, Value*> defsMap, StringRef &alloc, char *type, std::vector<StringRef> *visits) {
+	  tuple<StringRef, int> extractGEP(Instruction *inst) {
+	  	  tuple<StringRef, int> retTup;
+
+		  GetElementPtrInst *gep = cast<GetElementPtrInst> (inst);
+		  Type *tp = gep->getSourceElementType();
+		  int factor = 1;
+		  ArrayType *atp = cast<ArrayType> (tp);
+		  while(atp->getElementType()->isArrayTy()) {
+			  atp = cast<ArrayType> (atp->getElementType());
+			  factor = factor * atp->getNumElements();
+		  }
+		  //errs() << factor << " " << *tp << " ";
+
+		  std::map<StringRef, bool> visited;
+		  std::queue<Value*> valQ;
+
+
+		  Value *v;
+		  v = inst->getOperand(2);
+		  valQ.push(v);
+		  visited[v->getName()] = true;
+		  StringRef indVar;
+		  while(!valQ.empty()) {
+			  v = valQ.front();
+			  valQ.pop();
+
+			  Instruction *inst = cast<Instruction>(v);
+			  if(llvm::isa<llvm::PHINode>(*inst)) {
+			  	indVar = v->getName();
+				break;
+			  }
+
+			  for(Use &U : inst->operands()) {
+				  v = U.get();
+				  if(visited.find(v->getName()) == visited.end()) {
+					  valQ.push(v);
+					  visited[v->getName()] = true;
+				  }
+			  }
+		  }
+		  //errs() << "Ind var " << indVar << "\n";
+
+		  retTup = make_tuple(indVar, factor);
+		  return retTup;
+	  }
+
+	  bool reverseClosure(llvm::BasicBlock::iterator &inst, std::map<StringRef, Value*> defsMap, StringRef &alloc, char *type, std::vector<StringRef> *visits, std::map<StringRef, int> &hidFact) {
 	  	  std::queue<StringRef> labQ;
 		  int phiCounter = 0;
 		  std::map <StringRef, bool> visited;
@@ -81,6 +128,14 @@ namespace {
 			  //errs() << v << " defined by " << *defsMap[v] << "\n";
 			  labQ.pop();
 			  Instruction* inst2 = cast<Instruction>(defsMap[v]);
+			  if(!inst2) {
+			  	continue;
+			  }
+
+			  if(llvm::isa <llvm::GetElementPtrInst> (*inst2)) {
+				  tuple<StringRef, int> tup = extractGEP(inst2);
+				  hidFact[get<0>(tup)] = get<1>(tup); 
+			  }
 			  if(llvm::isa <llvm::AllocaInst> (*inst2)) {
 				  alloc = v;
 			  }
@@ -360,7 +415,7 @@ namespace {
 
 
 	  }
-	  void analyzeStat(std::vector<struct LoopData> &loopDataV, StringRef &alloc, StringRef &func, char* type, ScalarEvolution &SE, std::vector<StringRef> &visits, std::map<StringRef, Value*> &defsMap) {
+	  void analyzeStat(std::vector<struct LoopData> &loopDataV, StringRef &alloc, StringRef &func, char* type, ScalarEvolution &SE, std::vector<StringRef> &visits, std::map<StringRef, Value*> &defsMap, std::map<StringRef, int> &hidFact) {
 		  errs() << "Accessing " << alloc << " of type " << type << "\n";
 		  std::vector<struct LoopData*> compLoopV;
 		  for(struct LoopData &ldata : loopDataV) {
@@ -373,10 +428,11 @@ namespace {
 					  int scaleV = get<1>(tup);
 					  int constV = get<2> (tup);
 					  struct LoopData *lp = &ldata;
-					  ldata.scaleV = scaleV;
-					  ldata.constV = constV;
+					  int fact = hidFact[ldata.indVar];
+					  ldata.scaleV = scaleV * fact;
+					  ldata.constV = constV * fact;
 					  compLoopV.push_back(lp);
-					  errs() << " dervied from base variable " << base->getName() << " with scale of " << scaleV << " and constant of " << constV << "\n";
+					  errs() << " dervied from base variable " << base->getName() << " with scale of " << ldata.scaleV << " and constant of " << ldata.constV << "\n";
 					  break;
 				  }
 			  }
@@ -385,7 +441,7 @@ namespace {
 		 struct streamInfo sInfo;
 		 sInfo = computeStream(func, alloc, type, loopDataV, compLoopV);
 		 exprStride(loopDataV, compLoopV, sInfo.name);
-		 enumStride(sInfo);
+		 //enumStride(sInfo);
 		 //enumReuse(sInfo);
 	  }
 
@@ -453,12 +509,13 @@ namespace {
 							StringRef func = F.getName();
 							char type[16];
 							std::vector<StringRef> visits;
-							if(reverseClosure(itr, defsMap, alloc, type, &visits) == true) {
-								if(allocVMap.find(alloc) != allocVMap.end()) {
+							std::map<StringRef, int> hidFact;
+							if(reverseClosure(itr, defsMap, alloc, type, &visits, hidFact) == true) {
+								/*if(allocVMap.find(alloc) != allocVMap.end()) {
 									continue;
-								}
+								}*/
 								allocVMap[alloc] = true;
-								analyzeStat(loopDataV, alloc, func, type, SE, visits, defsMap);
+								analyzeStat(loopDataV, alloc, func, type, SE, visits, defsMap, hidFact);
 							}
 						}
 					}
