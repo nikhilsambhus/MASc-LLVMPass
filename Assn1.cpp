@@ -60,16 +60,19 @@ namespace {
 		AU.addRequired<ScalarEvolutionWrapperPass>();
     	  }
 
-	  std::map<StringRef, int> extractGEP(Instruction *inst) {
-	  	  std::map<StringRef, int> retMap;
-
+	  std::map<StringRef, std::vector<int>> extractGEP(Instruction *inst) {
+	  	  std::map<StringRef, std::vector<int>> retMap;
+		  std::vector<int> dimsV;
+		
 		  GetElementPtrInst *gep = cast<GetElementPtrInst> (inst);
 		  Type *tp = gep->getSourceElementType();
-		  int factor = 1;
 		  ArrayType *atp = cast<ArrayType> (tp);
 		  while(atp->getElementType()->isArrayTy()) {
 			  atp = cast<ArrayType> (atp->getElementType());
-			  factor = factor * atp->getNumElements();
+			  dimsV.push_back(atp->getNumElements());
+		  }
+		  if(dimsV.empty()) {
+		  	dimsV.push_back(1);
 		  }
 		  //errs() << factor << " " << *tp << " ";
 
@@ -105,13 +108,13 @@ namespace {
 
 		  for(StringRef ind : indV) {
 		  	//errs() << "Ind var " << ind << "\n";
-			retMap[ind] = factor;
+			retMap[ind] = dimsV;
 		  }
 
 		  return retMap;
 	  }
 
-	  bool reverseClosure(llvm::BasicBlock::iterator &inst, std::map<StringRef, Value*> defsMap, StringRef &alloc, char *type, std::vector<StringRef> *visits, std::map<StringRef, int> &hidFact) {
+	  bool reverseClosure(llvm::BasicBlock::iterator &inst, std::map<StringRef, Value*> defsMap, StringRef &alloc, char *type, std::vector<StringRef> *visits, std::map<StringRef, std::vector<int>> &hidFact) {
 	  	  std::queue<StringRef> labQ;
 		  int phiCounter = 0;
 		  std::map <StringRef, bool> visited;
@@ -138,7 +141,7 @@ namespace {
 			  }
 
 			  if(llvm::isa <llvm::GetElementPtrInst> (*inst2)) {
-				  std::map<StringRef, int> factM = extractGEP(inst2);
+				  std::map<StringRef, std::vector<int>> factM = extractGEP(inst2);
 				  hidFact.insert(factM.begin(), factM.end()); 
 			  }
 			  if(llvm::isa <llvm::AllocaInst> (*inst2)) {
@@ -414,28 +417,37 @@ namespace {
 
 
 	  }
-	  void analyzeStat(std::vector<struct LoopData> &loopDataV, StringRef &alloc, StringRef &func, char* type, ScalarEvolution &SE, std::vector<StringRef> &visits, std::map<StringRef, Value*> &defsMap, std::map<StringRef, int> &hidFact) {
+	  void analyzeStat(std::vector<struct LoopData> &loopDataV, StringRef &alloc, StringRef &func, char* type, ScalarEvolution &SE, std::vector<StringRef> &visits, std::map<StringRef, Value*> &defsMap, std::map<StringRef, std::vector<int>> &hidFact) {
 		  errs() << "Accessing " << alloc << " of type " << type << "\n";
 		  std::vector<struct LoopData*> compLoopV;
 		  for(struct LoopData &ldata : loopDataV) {
 			  map<Value*, tuple<Value*, int, int>> IndVarMap = getDerived(loopDataV[0].lp, ldata.lp, SE);
 			  for(StringRef visit : visits) {
 				  if(IndVarMap.find(defsMap[visit]) != IndVarMap.end()) {
-					  errs() << " with " << visit << " as the dervied induction variable considering innermost loop's base induction variable is " << ldata.indVar;
+					  //errs() << " with " << visit << " as the dervied induction variable considering innermost loop's base induction variable is " << ldata.indVar;
 					  tuple<Value*, int, int> tup = IndVarMap[defsMap[visit]];
 					  Value *base = get<0>(tup);
 					  int scaleV = get<1>(tup);
 					  int constV = get<2> (tup);
 					  struct LoopData *lp = &ldata;
-					  int fact = hidFact[ldata.indVar];
+					  errs() << base->getName();
+					  int fact = 1;
+					  for(int dim : hidFact[ldata.indVar]) {
+					  	errs() << " * ";
+						errs() << dim;
+						fact = fact * dim;
+					  }
+					  errs() << " * (" << scaleV << " + " << constV << ") + ";
 					  ldata.scaleV = scaleV * fact;
 					  ldata.constV = constV * fact;
 					  compLoopV.push_back(lp);
-					  errs() << " dervied from base variable " << base->getName() << " with scale of " << ldata.scaleV << " and constant of " << ldata.constV << "\n";
+					  //errs() << " dervied from base variable " << base->getName() << " with scale of " << ldata.scaleV << " and constant of " << ldata.constV << "\n";
 					  break;
 				  }
 			  }
-		  }
+		 }
+
+		 errs() << "\b\b \n";
 
 		 struct streamInfo sInfo;
 		 sInfo = computeStream(func, alloc, type, loopDataV, compLoopV);
@@ -508,7 +520,7 @@ namespace {
 							StringRef func = F.getName();
 							char type[16];
 							std::vector<StringRef> visits;
-							std::map<StringRef, int> hidFact;
+							std::map<StringRef, std::vector<int>> hidFact;
 							if(reverseClosure(itr, defsMap, alloc, type, &visits, hidFact) == true) {
 								/*if(allocVMap.find(alloc) != allocVMap.end()) {
 									continue;
