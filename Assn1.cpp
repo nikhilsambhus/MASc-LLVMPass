@@ -66,6 +66,10 @@ namespace {
 		
 		  GetElementPtrInst *gep = cast<GetElementPtrInst> (inst);
 		  Type *tp = gep->getSourceElementType();
+		  if(!tp->isArrayTy()) {
+		  	errs() << "Not array type, exiting\n";
+			exit(-1);
+		  }
 		  ArrayType *atp = cast<ArrayType> (tp);
 		  while(atp->getElementType()->isArrayTy()) {
 			  atp = cast<ArrayType> (atp->getElementType());
@@ -437,7 +441,14 @@ namespace {
 						errs() << dim;
 						fact = fact * dim;
 					  }
-					  errs() << " * (" << scaleV << " + " << constV << ") + ";
+					  errs() << " * " << scaleV << " + " ;
+
+					  for(int dim : hidFact[ldata.indVar]) {
+						  errs() << dim;
+						  errs() << " * ";
+					  }
+					  errs() << constV << " + ";
+
 					  ldata.scaleV = scaleV * fact;
 					  ldata.constV = constV * fact;
 					  compLoopV.push_back(lp);
@@ -452,8 +463,8 @@ namespace {
 		 struct streamInfo sInfo;
 		 sInfo = computeStream(func, alloc, type, loopDataV, compLoopV);
 		 exprStride(loopDataV, compLoopV, sInfo.name);
-		 //enumStride(sInfo);
-		 enumReuse(sInfo);
+		 enumStride(sInfo);
+		 //enumReuse(sInfo);
 	  }
 
 	  bool runOnFunction(Function &F) override {
