@@ -37,6 +37,8 @@ namespace {
   	int initV;
 	int stepV;
 	int finalV;
+	bool finalCons;
+	StringRef finalInd;
 	StringRef indVar;
 
 	int scaleV;
@@ -182,7 +184,7 @@ namespace {
 		  }
 	  }
 
-	  struct LoopData parseLoop(Loop *li, ScalarEvolution &SE) {
+	  struct LoopData parseLoop(Loop *li, ScalarEvolution &SE, std::vector<struct LoopData> &loopDataV) {
 		  struct LoopData loopData;
 		  PHINode *phinode;
 
@@ -200,8 +202,23 @@ namespace {
 		  //errs() << "Initialization of loop is " << loopData.initV << "\n";
 
 		  Value& vFinal = (*lbs).getFinalIVValue();
-		  Ci = cast<ConstantInt>(&vFinal);
-		  loopData.finalV = Ci->getSExtValue(); 
+		  //errs() << "final value " << vFinal << "\n";
+		  if(vFinal.hasName()) {
+		  	loopData.finalInd = vFinal.getName();
+			loopData.finalCons = false;
+			for(struct LoopData &lp: loopDataV) {
+				if(loopData.finalInd == lp.indVar) {
+					loopData.finalV = lp.finalV;
+					break;
+				}
+			}
+		  }
+		  else {
+		  	Ci = cast<ConstantInt>(&vFinal);
+		  	loopData.finalV = Ci->getSExtValue();
+			loopData.finalCons = true;
+		  }
+		  //errs() << loopData.finalInd << loopData.finalV << loopData.finalCons << "\n";
 		  //errs() << "Loop upper bound / goes upto " << loopData.finalV << "\n";
 
 		  Value* step = (*lbs).getStepValue();
@@ -512,13 +529,13 @@ namespace {
 			std::vector<struct LoopData> loopDataV;
 			LoopCounter++;
 
-			loopData = parseLoop(lit, SE);		
+			loopData = parseLoop(lit, SE, loopDataV);		
 			loopDataV.push_back(loopData);
 			std::unique_ptr<LoopNest> lnest = LoopNest::getLoopNest(*lit, SE); 
 			Loop *lin = lit;
 			for(unsigned int i = 1; i < lnest->getNumLoops(); i++) {
 				lin = lnest->getLoop(i);
-				loopData = parseLoop(lin, SE);		
+				loopData = parseLoop(lin, SE, loopDataV);		
 				loopDataV.push_back(loopData);
 			}
 			for(BasicBlock *BB : lit->getBlocks())
