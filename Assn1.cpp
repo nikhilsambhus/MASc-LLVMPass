@@ -284,6 +284,7 @@ namespace {
 		for(int count = 0; count < factor; count++) {
 			int pos = 0;
 			std::vector<int> indList;
+			std::map<StringRef, int> posIndMap;
 			for(struct LoopData *ldata : compLoopV) {
 				int indV = (count / ldata->divInd) % ldata->modInd;
 				//errs() << count << " " << ldata.divInd << " " << ldata.modInd << " " << indV << "\n";
@@ -291,7 +292,26 @@ namespace {
 				pos = pos + indV * ldata->scaleV;
 				pos = pos + ldata->constV;
 			}
-			sInfo.addrs.push_back(pos);
+			
+			//compute values of all surrounding loop ind vars
+			for(struct LoopData &ldata : allLoopData) {
+				int indV = (count / ldata.divInd) % ldata.modInd;
+				posIndMap[ldata.indVar] = indV;
+			}
+
+			//check if finalV is compared with any indvar to filter stream addresses
+			int skip = false;
+			for(struct LoopData &ldata : allLoopData) {
+				if(ldata.finalCons == false) {
+					if(posIndMap[ldata.indVar] >= posIndMap[ldata.finalInd]) {
+						skip = true;
+						break;
+					}
+				}
+			}
+			if(!skip) {
+				sInfo.addrs.push_back(pos);
+			}
 			/*fprintf(fp, "%d", pos);
 			for(int indV : indList) {
 				fprintf(fp, " %d", indV);
