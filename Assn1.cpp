@@ -37,8 +37,12 @@ namespace {
   	int initV;
 	int stepV;
 	int finalV;
+	
+	bool initCons;
+	StringRef initInd;
 	bool finalCons;
 	StringRef finalInd;
+	
 	StringRef indVar;
 
 	int scaleV;
@@ -98,6 +102,7 @@ namespace {
 			  Instruction *inst = cast<Instruction>(v);
 			  if(llvm::isa<llvm::PHINode>(*inst)) {
 			  	indV.push_back(v->getName());
+				break;
 			  }
 
 			  for(Use &U : inst->operands()) {
@@ -194,11 +199,24 @@ namespace {
 		  Value* vInd = cast<Value>(phinode);
 		  loopData.indVar = vInd->getName();
 
+		  ConstantInt *Ci;
 		  llvm::Optional<Loop::LoopBounds> lbs = li->getBounds(SE);
 		  Value& vInit = (*lbs).getInitialIVValue();
-		  ConstantInt *Ci;
-		  Ci = cast<ConstantInt>(&vInit);
-		  loopData.initV = Ci->getSExtValue(); 
+		  if(vInit.hasName()) {
+			loopData.initCons = false;
+		  	errs() << vInit << "\n";
+			Instruction *inst = cast<Instruction>(&vInit);
+			if(inst->getOpcode() == Instruction::Add) {
+				Ci = cast<ConstantInt>(inst->getOperand(1));
+				loopData.initV = Ci->getSExtValue();
+				loopData.initInd = inst->getOperand(0)->getName();
+				errs() << loopData.initInd << loopData.initV << "\n";
+			}
+		  } else {
+			  Ci = cast<ConstantInt>(&vInit);
+			  loopData.initV = Ci->getSExtValue(); 
+			  loopData.initCons = true;
+		  }
 		  //errs() << "Initialization of loop is " << loopData.initV << "\n";
 
 		  Value& vFinal = (*lbs).getFinalIVValue();
@@ -300,10 +318,18 @@ namespace {
 			}
 
 			//check if finalV is compared with any indvar to filter stream addresses
+			//check if initV is assigned any indVar to filter stream addresses
 			int skip = false;
 			for(struct LoopData &ldata : allLoopData) {
 				if(ldata.finalCons == false) {
 					if(posIndMap[ldata.indVar] >= posIndMap[ldata.finalInd]) {
+						skip = true;
+						break;
+					}
+				}
+
+				if(ldata.initCons == false) {
+					if(posIndMap[ldata.indVar] < (posIndMap[ldata.initInd] + ldata.initV)) {
 						skip = true;
 						break;
 					}
