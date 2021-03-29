@@ -178,8 +178,8 @@ namespace {
 		  /*errs() << "All labels impacting the address in the instruction " << *inst << " are: ";
 		  for(std::pair<StringRef, bool> elem : visited) {
 		  	errs() << " " << elem.first;
-		  }
-		  */
+		  }*/
+		  
 		  
 		  if((alloc.empty()) || (phiCounter == 0)) {
 		  	return false;
@@ -204,13 +204,13 @@ namespace {
 		  Value& vInit = (*lbs).getInitialIVValue();
 		  if(vInit.hasName()) {
 			loopData.initCons = false;
-		  	errs() << vInit << "\n";
+		  	//errs() << vInit << "\n";
 			Instruction *inst = cast<Instruction>(&vInit);
 			if(inst->getOpcode() == Instruction::Add) {
 				Ci = cast<ConstantInt>(inst->getOperand(1));
 				loopData.initV = Ci->getSExtValue();
 				loopData.initInd = inst->getOperand(0)->getName();
-				errs() << loopData.initInd << loopData.initV << "\n";
+				//errs() << loopData.initInd << loopData.initV << "\n";
 			}
 		  } else {
 			  Ci = cast<ConstantInt>(&vInit);
@@ -488,13 +488,15 @@ namespace {
 		  errs() << "Accessing " << alloc << " of type " << type << "\n";
 		  std::vector<struct LoopData*> compLoopV;
 		  for(struct LoopData &ldata : loopDataV) {
-			  map<Value*, tuple<Value*, int, int>> IndVarMap = getDerived(loopDataV[0].lp, ldata.lp, SE);
-			  for(StringRef visit : visits) {
+			  map<Value*, tuple<Value*, int, int, int>> IndVarMap = getDerived(loopDataV[0].lp, ldata.lp, SE);
+			  /*for(StringRef visit : visits) {
 				  if(IndVarMap.find(defsMap[visit]) != IndVarMap.end()) {
+				  	  
 					  //errs() << " with " << visit << " as the dervied induction variable considering innermost loop's base induction variable is " << ldata.indVar;
-					  tuple<Value*, int, int> tup = IndVarMap[defsMap[visit]];
+					  tuple<Value*, int, int, int> tup = IndVarMap[defsMap[visit]];
 					  Value *base = get<0>(tup);
 					  int scaleV = get<1>(tup);
+					  errs() << "scaleV " << scaleV << "\n";
 					  int constV = get<2> (tup);
 					  struct LoopData *lp = &ldata;
 					  errs() << base->getName();
@@ -518,15 +520,16 @@ namespace {
 					  //errs() << " dervied from base variable " << base->getName() << " with scale of " << ldata.scaleV << " and constant of " << ldata.constV << "\n";
 					  break;
 				  }
-			  }
+			  }*/
 		 }
 
-		 errs() << "\b\b \n";
+		 /*errs() << "\b\b \n";
 
 		 struct streamInfo sInfo;
 		 sInfo = computeStream(func, alloc, type, loopDataV, compLoopV);
 		 exprStride(loopDataV, compLoopV, sInfo.name);
 		 enumStride(sInfo);
+		 */
 		 //enumReuse(sInfo);
 	  }
 

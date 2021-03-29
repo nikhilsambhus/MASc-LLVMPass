@@ -21,8 +21,8 @@ using namespace llvm;
 using namespace std;
 
 
-map<Value*, tuple<Value*, int, int>> getDerived(Loop *topmost, Loop *innermost, ScalarEvolution &SE) {
-        map<Value*, tuple<Value*, int, int> > IndVarMap;
+map<Value*, tuple<Value*, int, int, int>> getDerived(Loop *topmost, Loop *innermost, ScalarEvolution &SE) {
+        map<Value*, tuple<Value*, int, int, int> > IndVarMap;
 
         // all induction variables should have phi nodes in the header
         // notice that this might add additional variables, they are treated as basic induction
@@ -34,7 +34,7 @@ map<Value*, tuple<Value*, int, int>> getDerived(Loop *topmost, Loop *innermost, 
 
 	PHINode *phinode = innermost->getInductionVariable(SE);
 	Value *inst = cast<Value>(phinode);
-        IndVarMap[inst] = make_tuple(inst, 1, 0);
+        IndVarMap[inst] = make_tuple(inst, 0, 1, 0);
         /*for (auto &I : *b_header) {
           if (PHINode *PN = dyn_cast<PHINode>(&I)) {
             IndVarMap[&I] = make_tuple(&I, 1, 0);
@@ -48,8 +48,9 @@ map<Value*, tuple<Value*, int, int>> getDerived(Loop *topmost, Loop *innermost, 
         // find all indvars
         // keep modifying the set until the size does not change
         // notice that over here, our set of induction variables is not precise
+	map<Value*, bool> delVars;
         while (true) {
-          map<Value*, tuple<Value*, int, int> > NewMap = IndVarMap;
+          map<Value*, tuple<Value*, int, int, int> > NewMap = IndVarMap;
           // iterate through all blocks in the loop
           for (auto B: blks) {
             // iterate through all its instructions
@@ -60,47 +61,65 @@ map<Value*, tuple<Value*, int, int>> getDerived(Loop *topmost, Loop *innermost, 
                 Value *lhs = op->getOperand(0);
                 Value *rhs = op->getOperand(1);
                 // check if one of the operands belongs to indvars
-                if (IndVarMap.count(lhs) || IndVarMap.count(rhs)) {
+                if ((IndVarMap.count(lhs) || IndVarMap.count(rhs)) && !I.getName().startswith("inc")) {
                   // case: Add
                   if (I.getOpcode() == Instruction::Add) {
                     ConstantInt* CIL = dyn_cast<ConstantInt>(lhs);
                     ConstantInt* CIR = dyn_cast<ConstantInt>(rhs);
                     if (IndVarMap.count(lhs) && CIR) {
-                      tuple<Value*, int, int> t = IndVarMap[lhs];
-                      int new_val = CIR->getSExtValue() + get<2>(t);
-                      NewMap[&I] = make_tuple(get<0>(t), get<1>(t), new_val);
+                      tuple<Value*, int, int, int> t = IndVarMap[lhs];
+                      int new_val = CIR->getSExtValue() + get<3>(t);
+                      NewMap[&I] = make_tuple(get<0>(t), get<1>(t), get<2>(t), new_val);
+		      delVars[lhs] = true;
                     } else if (IndVarMap.count(rhs) && CIL) {
-                      tuple<Value*, int, int> t = IndVarMap[rhs];
-                      int new_val = CIL->getSExtValue() + get<2>(t);
-                      NewMap[&I] = make_tuple(get<0>(t), get<1>(t), new_val);
+                      tuple<Value*, int, int, int> t = IndVarMap[rhs];
+                      int new_val = CIL->getSExtValue() + get<3>(t);
+                      NewMap[&I] = make_tuple(get<0>(t), get<1>(t), get<2>(t), new_val);
+		      delVars[rhs] = true;
                     }
                   // case: Sub
                   } else if (I.getOpcode() == Instruction::Sub) {
                     ConstantInt* CIL = dyn_cast<ConstantInt>(lhs);
                     ConstantInt* CIR = dyn_cast<ConstantInt>(rhs);
                     if (IndVarMap.count(lhs) && CIR) {
-                      tuple<Value*, int, int> t = IndVarMap[lhs];
-                      int new_val = get<2>(t) - CIR->getSExtValue();
-                      NewMap[&I] = make_tuple(get<0>(t), get<1>(t), new_val);
+                      tuple<Value*, int, int, int> t = IndVarMap[lhs];
+                      int new_val = get<3>(t) - CIR->getSExtValue();
+                      NewMap[&I] = make_tuple(get<0>(t), get<1>(t), get<2>(t), new_val);
+		      delVars[lhs] = true;
                     } else if (IndVarMap.count(rhs) && CIL) {
-                      tuple<Value*, int, int> t = IndVarMap[rhs];
-                      int new_val = get<2>(t) - CIL->getSExtValue();
-                      NewMap[&I] = make_tuple(get<0>(t), get<1>(t), new_val);
+                      tuple<Value*, int, int, int> t = IndVarMap[rhs];
+                      int new_val = get<3>(t) - CIL->getSExtValue();
+                      NewMap[&I] = make_tuple(get<0>(t), get<1>(t), get<2>(t), new_val);
+		      delVars[rhs] = true;
                     }
                   // case: Mul
                   } else if (I.getOpcode() == Instruction::Mul) {
                     ConstantInt* CIL = dyn_cast<ConstantInt>(lhs);
                     ConstantInt* CIR = dyn_cast<ConstantInt>(rhs);
                     if (IndVarMap.count(lhs) && CIR) {
-                      tuple<Value*, int, int> t = IndVarMap[lhs];
-                      int new_val = CIR->getSExtValue() * get<1>(t);
-                      NewMap[&I] = make_tuple(get<0>(t), new_val, get<2>(t));
+                      tuple<Value*, int, int, int> t = IndVarMap[lhs];
+                      int new_val = CIR->getSExtValue() * get<2>(t);
+                      NewMap[&I] = make_tuple(get<0>(t), get<1>(t), new_val, get<3>(t));
+		      delVars[lhs] = true;
                     } else if (IndVarMap.count(rhs) && CIL) {
-                      tuple<Value*, int, int> t = IndVarMap[rhs];
-                      int new_val = CIL->getSExtValue() * get<1>(t);
-                      NewMap[&I] = make_tuple(get<0>(t), new_val, get<2>(t));
+                      tuple<Value*, int, int, int> t = IndVarMap[rhs];
+                      int new_val = CIL->getSExtValue() * get<2>(t);
+                      NewMap[&I] = make_tuple(get<0>(t), get<1>(t), new_val, get<3>(t));
+		      delVars[rhs] = true;
                     }
-                  }
+		  }
+		  //case : Mod operation
+		  else if(I.getOpcode() == Instruction::SRem) {
+			  ConstantInt* CIL = dyn_cast<ConstantInt>(lhs);
+			  ConstantInt* CIR = dyn_cast<ConstantInt>(rhs);
+			  if (IndVarMap.count(lhs) && CIR) {
+				  tuple<Value*, int, int, int> t = IndVarMap[lhs];
+				  int new_val = CIR->getSExtValue() + get<1>(t);
+				  NewMap[&I] = make_tuple(get<0>(t), new_val, get<2>(t), get<3>(t));
+				  delVars[lhs] = true;
+				  //errs() << "Srem found " << *lhs <<  *rhs << "\n";
+			  }
+		  }
                 } // if operand in indvar
               } // if op is binop
             } // auto &I: B
@@ -109,20 +128,25 @@ map<Value*, tuple<Value*, int, int>> getDerived(Loop *topmost, Loop *innermost, 
           else IndVarMap = NewMap;
         }
 
-	/*for(pair<Value*, tuple<Value*, int, int>> elem : IndVarMap) {
+	for(auto &it : delVars) {
+		//errs() << " Del " << it.first->getName() << "\n";
+		IndVarMap.erase(it.first);
+	}
+	for(pair<Value*, tuple<Value*, int, int, int>> elem : IndVarMap) {
 		Value *derV = elem.first;
-		tuple<Value *, int, int> tup = elem.second;
+		tuple<Value *, int, int, int> tup = elem.second;
 		Value *base = get<0>(tup);
-		int scaleV = get<1>(tup);
-		int constV = get<2> (tup);
+		int modV = get<1>(tup);
+		int scaleV = get<2>(tup);
+		int constV = get<3> (tup);
 		if(derV == base) {
 			errs() << derV->getName() << " is the base induction variable\n";
 		}
 		else {
-			errs() << derV->getName() << " is derived from " << base->getName() << " with scale " << scaleV << " and constant " << constV << "\n";
+			errs() << derV->getName() << " is derived from " << base->getName() << " with mod " << modV << ", with scale " << scaleV << " and constant " << constV << "\n";
 		}
 
-	}*/
+	}
 
 	return IndVarMap;
 }
