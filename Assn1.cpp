@@ -47,6 +47,11 @@ namespace {
 
 	int scaleV;
 	int constV;
+	vector<int> scaleVV;
+	vector<int> constVV;
+	vector<int> modVV;
+	int hidFact;
+
 	int modInd;
 	int divInd;
   };
@@ -307,8 +312,16 @@ namespace {
 				int indV = (count / ldata->divInd) % ldata->modInd;
 				//errs() << count << " " << ldata.divInd << " " << ldata.modInd << " " << indV << "\n";
 				indList.push_back(indV);
-				pos = pos + indV * ldata->scaleV;
-				pos = pos + ldata->constV;
+				for(unsigned i = 0; i < ldata->scaleVV.size(); i++) {
+					int val = indV;
+					int modV = ldata->modVV[i];
+					if(modV) {
+						val = val % modV;
+					}
+					val = val * ldata->scaleVV[i];
+					val = val + ldata->constVV[i];
+					pos = pos + val;
+				}
 			}
 			
 			//compute values of all surrounding loop ind vars
@@ -488,48 +501,57 @@ namespace {
 		  errs() << "Accessing " << alloc << " of type " << type << "\n";
 		  std::vector<struct LoopData*> compLoopV;
 		  for(struct LoopData &ldata : loopDataV) {
-			  map<Value*, tuple<Value*, int, int, int>> IndVarMap = getDerived(loopDataV[0].lp, ldata.lp, SE);
-			  /*for(StringRef visit : visits) {
+			  map<Value*, tuple<Value*, int, int, int>> IndVarMap = getDerived(loopDataV[0].lp, ldata.lp, SE, visits);
+			  bool lpAdded = false;
+			  ldata.modVV.clear();
+			  ldata.scaleVV.clear();
+			  ldata.constVV.clear();
+			  for(StringRef visit : visits) {
 				  if(IndVarMap.find(defsMap[visit]) != IndVarMap.end()) {
 				  	  
 					  //errs() << " with " << visit << " as the dervied induction variable considering innermost loop's base induction variable is " << ldata.indVar;
 					  tuple<Value*, int, int, int> tup = IndVarMap[defsMap[visit]];
 					  Value *base = get<0>(tup);
-					  int scaleV = get<1>(tup);
-					  errs() << "scaleV " << scaleV << "\n";
-					  int constV = get<2> (tup);
+					  int modV = get<1>(tup);
+					  int scaleV = get<2>(tup);
+					  int constV = get<3> (tup);
 					  struct LoopData *lp = &ldata;
 					  errs() << base->getName();
 					  int fact = 1;
 					  for(int dim : hidFact[ldata.indVar]) {
-					  	errs() << " * ";
-						errs() << dim;
+					  	//errs() << " * ";
+						//errs() << dim;
 						fact = fact * dim;
+					  }
+
+					  if(modV) {
+					  	errs() << " % " << modV;
 					  }
 					  errs() << " * " << scaleV << " + " ;
 
-					  for(int dim : hidFact[ldata.indVar]) {
-						  errs() << dim;
-						  errs() << " * ";
-					  }
 					  errs() << constV << " + ";
 
-					  ldata.scaleV = scaleV * fact;
-					  ldata.constV = constV * fact;
-					  compLoopV.push_back(lp);
+					  ldata.modVV.push_back(modV);
+					  ldata.scaleVV.push_back(scaleV);
+					  ldata.constVV.push_back(constV);
+					  ldata.hidFact = fact;
+					  if(!lpAdded) {
+					  	compLoopV.push_back(lp);
+					  }
+					  lpAdded = true;
 					  //errs() << " dervied from base variable " << base->getName() << " with scale of " << ldata.scaleV << " and constant of " << ldata.constV << "\n";
-					  break;
+					  //break;
 				  }
-			  }*/
+			  }
 		 }
 
-		 /*errs() << "\b\b \n";
+		 errs() << "\b\b \n";
 
 		 struct streamInfo sInfo;
 		 sInfo = computeStream(func, alloc, type, loopDataV, compLoopV);
-		 exprStride(loopDataV, compLoopV, sInfo.name);
+		 //exprStride(loopDataV, compLoopV, sInfo.name);
 		 enumStride(sInfo);
-		 */
+		 
 		 //enumReuse(sInfo);
 	  }
 

@@ -21,7 +21,7 @@ using namespace llvm;
 using namespace std;
 
 
-map<Value*, tuple<Value*, int, int, int>> getDerived(Loop *topmost, Loop *innermost, ScalarEvolution &SE) {
+map<Value*, tuple<Value*, int, int, int>> getDerived(Loop *topmost, Loop *innermost, ScalarEvolution &SE, vector<StringRef> &visits) {
         map<Value*, tuple<Value*, int, int, int> > IndVarMap;
 
         // all induction variables should have phi nodes in the header
@@ -57,6 +57,10 @@ map<Value*, tuple<Value*, int, int, int>> getDerived(Loop *topmost, Loop *innerm
             for (auto &I : *B) {
               // we only accept multiplication, addition, and subtraction
               // we only accept constant integer as one of theoperands
+	      //do analysis only if variable present in the visits/closure set passed
+	      if(find(visits.begin(), visits.end(), I.getName()) == visits.end()) {
+	      	continue;
+	      }
               if (auto *op = dyn_cast<BinaryOperator>(&I)) {
                 Value *lhs = op->getOperand(0);
                 Value *rhs = op->getOperand(1);
@@ -132,6 +136,7 @@ map<Value*, tuple<Value*, int, int, int>> getDerived(Loop *topmost, Loop *innerm
 		//errs() << " Del " << it.first->getName() << "\n";
 		IndVarMap.erase(it.first);
 	}
+	/*
 	for(pair<Value*, tuple<Value*, int, int, int>> elem : IndVarMap) {
 		Value *derV = elem.first;
 		tuple<Value *, int, int, int> tup = elem.second;
@@ -147,7 +152,7 @@ map<Value*, tuple<Value*, int, int, int>> getDerived(Loop *topmost, Loop *innerm
 		}
 
 	}
-
+	*/
 	return IndVarMap;
 }
 
