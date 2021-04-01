@@ -318,8 +318,8 @@ namespace {
 					if(modV) {
 						val = val % modV;
 					}
-					val = val * ldata->scaleVV[i];
-					val = val + ldata->constVV[i];
+					val = val * ldata->scaleVV[i] * ldata->hidFact;
+					val = val + ldata->constVV[i] * ldata->hidFact;
 					pos = pos + val;
 				}
 			}
