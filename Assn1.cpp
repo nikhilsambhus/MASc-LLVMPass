@@ -50,6 +50,8 @@ namespace {
 	vector<int> scaleVV;
 	vector<int> constVV;
 	vector<int> modVV;
+	vector<vector<int>> opsVV;
+	vector<vector<int>> factsVV;
 	int hidFact;
 
 	int modInd;
@@ -312,16 +314,22 @@ namespace {
 				int indV = (count / ldata->divInd) % ldata->modInd;
 				//errs() << count << " " << ldata.divInd << " " << ldata.modInd << " " << indV << "\n";
 				indList.push_back(indV);
-				for(unsigned i = 0; i < ldata->scaleVV.size(); i++) {
+				int sum = 0;
+				for(unsigned i = 0; i < ldata->opsVV.size(); i++) {
 					int val = indV;
-					int modV = ldata->modVV[i];
-					if(modV) {
-						val = val % modV;
+					for(unsigned j = 0; j < ldata->opsVV[i].size(); j++) {
+						switch(ldata->opsVV[i][j]) {
+							case Oprs::Mul : val = val * ldata->factsVV[i][j]; break;
+							case Oprs::Add : val = val + ldata->factsVV[i][j]; break;
+							case Oprs::And : val = val & ldata->factsVV[i][j]; break;
+							case Oprs::Mod : val = val % ldata->factsVV[i][j]; break;
+							case Oprs::Rshift : val = val >> ldata->factsVV[i][j]; break;
+							default : errs() << "Error unknown operator found\n"; exit(1);
+						}
 					}
-					val = val * ldata->scaleVV[i] * ldata->hidFact;
-					val = val + ldata->constVV[i] * ldata->hidFact;
-					pos = pos + val;
+					sum = sum + val * ldata->hidFact;
 				}
+				pos = pos + sum;
 			}
 			
 			//compute values of all surrounding loop ind vars
@@ -501,20 +509,18 @@ namespace {
 		  errs() << "Accessing " << alloc << " of type " << type << "\n";
 		  std::vector<struct LoopData*> compLoopV;
 		  for(struct LoopData &ldata : loopDataV) {
-			  map<Value*, tuple<Value*, int, int, int>> IndVarMap = getDerived(loopDataV[0].lp, ldata.lp, SE, visits);
+			  map<Value*, tuple<Value*, vector<int>, vector<int> >> IndVarMap = getDerived(loopDataV[0].lp, ldata.lp, SE, visits);
 			  bool lpAdded = false;
-			  ldata.modVV.clear();
-			  ldata.scaleVV.clear();
-			  ldata.constVV.clear();
+			  ldata.factsVV.clear();
+			  ldata.opsVV.clear();
 			  for(StringRef visit : visits) {
 				  if(IndVarMap.find(defsMap[visit]) != IndVarMap.end()) {
 				  	  
 					  //errs() << " with " << visit << " as the dervied induction variable considering innermost loop's base induction variable is " << ldata.indVar;
-					  tuple<Value*, int, int, int> tup = IndVarMap[defsMap[visit]];
+					  tuple<Value*, vector<int>, vector<int>> tup = IndVarMap[defsMap[visit]];
 					  Value *base = get<0>(tup);
-					  int modV = get<1>(tup);
-					  int scaleV = get<2>(tup);
-					  int constV = get<3> (tup);
+					  vector<int> factsV = get<1>(tup);
+					  vector<int> opsV = get<2>(tup);
 					  struct LoopData *lp = &ldata;
 					  errs() << base->getName();
 					  int fact = 1;
@@ -523,17 +529,23 @@ namespace {
 						//errs() << dim;
 						fact = fact * dim;
 					  }
-
-					  if(modV) {
-					  	errs() << " % " << modV;
+					  ldata.factsVV.push_back(factsV);
+					  ldata.opsVV.push_back(opsV);
+					  for(unsigned i = 0; i < factsV.size(); i++) {
+					  	errs() << " ";
+						switch(opsV[i]) {
+							case Oprs::Add : errs() << "+"; break;
+							case Oprs::Mul : errs() << "*"; break;
+							case Oprs::And : errs() << "&"; break;
+							case Oprs::Rshift : errs() << ">>"; break;
+							case Oprs::Mod : errs() << "%"; break;
+						}
+						
+						errs() << " " << factsV[i];
 					  }
-					  errs() << " * " << scaleV << " + " ;
 
-					  errs() << constV << " + ";
+					  errs() << " + ";
 
-					  ldata.modVV.push_back(modV);
-					  ldata.scaleVV.push_back(scaleV);
-					  ldata.constVV.push_back(constV);
 					  ldata.hidFact = fact;
 					  if(!lpAdded) {
 					  	compLoopV.push_back(lp);
@@ -549,6 +561,7 @@ namespace {
 
 		 struct streamInfo sInfo;
 		 sInfo = computeStream(func, alloc, type, loopDataV, compLoopV);
+		 errs() << "Computed stream of addresses\n";
 		 //exprStride(loopDataV, compLoopV, sInfo.name);
 		 enumStride(sInfo);
 		 

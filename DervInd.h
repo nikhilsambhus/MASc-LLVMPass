@@ -21,4 +21,16 @@ using namespace llvm;
 using namespace std;
 
 
-map<Value*, tuple<Value*, int, int, int>> getDerived(Loop *topmost, Loop *innermost, ScalarEvolution &SE, vector<StringRef> &visits); 
+map<Value*, tuple<Value*, vector<int>, vector<int> >> getDerived(Loop *topmost, Loop *innermost, ScalarEvolution &SE, vector<StringRef> &visits); 
+
+namespace Oprs {
+
+	enum Oper {
+		Add,
+		Mul,
+		Mod,
+		Rshift,
+		And
+	};
+
+}
