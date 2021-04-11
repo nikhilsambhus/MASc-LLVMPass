@@ -15,9 +15,9 @@
 #include "DervInd.h"
 #include "llvm/IR/InstIterator.h"
 #include <queue>
+#include <pthread.h>
 using namespace llvm;
 using namespace std;
-
 #define DEBUG_TYPE "assn1"
 STATISTIC(FuncCounter, "Counts number of functions greeted");
 STATISTIC(InstCounter, "Counts number of instructions greeted");
@@ -27,6 +27,7 @@ STATISTIC(LoopCounter, "Counts number of loops greeted");
 STATISTIC(BBCounter, "Counts number of basic blocks greeted");
 
 namespace {
+  #define NUM_TDS 16
   struct pathElem {
   	StringRef lab;
 	Instruction *inst;
@@ -61,6 +62,13 @@ namespace {
   struct streamInfo {
   	char *name;
 	std::vector<int> addrs;
+  };
+
+  struct helperArgs {
+  	vector<struct LoopData*> compLoopV;
+	int factor;
+	int pno;
+	vector<int> addrsV;
   };
 
   struct Stat1Loop : public FunctionPass {
@@ -283,6 +291,87 @@ namespace {
 		errs() << "Based on expression analysis " << fname << " has continuous strides of size " << stride << "\n";
 		
 	  }
+
+	  static  void * computeHelper(void *arg) {
+		  struct helperArgs *args = (struct helperArgs*)arg;
+		  
+		  int psize = args->factor/NUM_TDS;
+		  int start = args->pno * psize;
+		  int end;
+		  if(args->pno == (NUM_TDS - 1)) {
+			  end = args->factor;
+		  }
+		  else {
+			  end = start + psize;
+		  }
+
+		  for(int count = start; count < end; count++) {
+			int pos = 0;
+			//std::vector<int> indList;
+			//std::map<StringRef, int> posIndMap;
+			for(struct LoopData *ldata : args->compLoopV) {
+				int indV = (count / ldata->divInd) % ldata->modInd;
+				//errs() << count << " " << ldata.divInd << " " << ldata.modInd << " " << indV << "\n";
+				//indList.push_back(indV);
+				int sum = 0;
+				for(unsigned i = 0; i < ldata->opsVV.size(); i++) {
+					int val = indV;
+					for(unsigned j = 0; j < ldata->opsVV[i].size(); j++) {
+						switch(ldata->opsVV[i][j]) {
+							case Oprs::Mul : val = val * ldata->factsVV[i][j]; break;
+							case Oprs::Add : val = val + ldata->factsVV[i][j]; break;
+							case Oprs::And : val = val & ldata->factsVV[i][j]; break;
+							case Oprs::Mod : val = val % ldata->factsVV[i][j]; break;
+							case Oprs::Rshift : val = val >> ldata->factsVV[i][j]; break;
+							default : errs() << "Error unknown operator found\n"; exit(1);
+						}
+					}
+					sum = sum + val * ldata->hidFact;
+				}
+				pos = pos + sum;
+			}
+		
+		        /*
+			//compute values of all surrounding loop ind vars
+			for(struct LoopData &ldata : allLoopData) {
+				int indV = (count / ldata.divInd) % ldata.modInd;
+				posIndMap[ldata.indVar] = indV;
+			}
+
+			
+			//check if finalV is compared with any indvar to filter stream addresses
+			//check if initV is assigned any indVar to filter stream addresses
+			int skip = false;
+			for(struct LoopData &ldata : allLoopData) {
+				if(ldata.finalCons == false) {
+					if(posIndMap[ldata.indVar] >= posIndMap[ldata.finalInd]) {
+						skip = true;
+						break;
+					}
+				}
+
+				if(ldata.initCons == false) {
+					if(posIndMap[ldata.indVar] < (posIndMap[ldata.initInd] + ldata.initV)) {
+						skip = true;
+						break;
+					}
+				}
+			}
+			if(!skip) {
+				sInfo.addrs.push_back(pos);
+			}
+			*/
+			args->addrsV.push_back(pos);
+
+			/*fprintf(fp, "%d", pos);
+			for(int indV : indList) {
+				fprintf(fp, " %d", indV);
+			}
+			fprintf(fp, "\n");*/
+		}
+
+		return NULL;
+	  }
 	  struct streamInfo computeStream(StringRef &func, StringRef &alloc, char *type, std::vector<struct LoopData> &allLoopData, std::vector<struct LoopData *> &compLoopV) {
 		int factor = 1;
 	  	for(int i = allLoopData.size() - 1; i >= 0; i--) {
@@ -306,64 +395,28 @@ namespace {
 
 		struct streamInfo sInfo;
 		sInfo.name = fname;
-		for(int count = 0; count < factor; count++) {
-			int pos = 0;
-			std::vector<int> indList;
-			std::map<StringRef, int> posIndMap;
-			for(struct LoopData *ldata : compLoopV) {
-				int indV = (count / ldata->divInd) % ldata->modInd;
-				//errs() << count << " " << ldata.divInd << " " << ldata.modInd << " " << indV << "\n";
-				indList.push_back(indV);
-				int sum = 0;
-				for(unsigned i = 0; i < ldata->opsVV.size(); i++) {
-					int val = indV;
-					for(unsigned j = 0; j < ldata->opsVV[i].size(); j++) {
-						switch(ldata->opsVV[i][j]) {
-							case Oprs::Mul : val = val * ldata->factsVV[i][j]; break;
-							case Oprs::Add : val = val + ldata->factsVV[i][j]; break;
-							case Oprs::And : val = val & ldata->factsVV[i][j]; break;
-							case Oprs::Mod : val = val % ldata->factsVV[i][j]; break;
-							case Oprs::Rshift : val = val >> ldata->factsVV[i][j]; break;
-							default : errs() << "Error unknown operator found\n"; exit(1);
-						}
-					}
-					sum = sum + val * ldata->hidFact;
-				}
-				pos = pos + sum;
-			}
-			
-			//compute values of all surrounding loop ind vars
-			for(struct LoopData &ldata : allLoopData) {
-				int indV = (count / ldata.divInd) % ldata.modInd;
-				posIndMap[ldata.indVar] = indV;
-			}
+		
+		struct helperArgs args[NUM_TDS];
+		for(int i = 0; i < NUM_TDS; i++) {
+			args[i].compLoopV = compLoopV;
+			args[i].factor = factor;
+			args[i].pno = i;
+		}
 
-			//check if finalV is compared with any indvar to filter stream addresses
-			//check if initV is assigned any indVar to filter stream addresses
-			int skip = false;
-			for(struct LoopData &ldata : allLoopData) {
-				if(ldata.finalCons == false) {
-					if(posIndMap[ldata.indVar] >= posIndMap[ldata.finalInd]) {
-						skip = true;
-						break;
-					}
-				}
 
-				if(ldata.initCons == false) {
-					if(posIndMap[ldata.indVar] < (posIndMap[ldata.initInd] + ldata.initV)) {
-						skip = true;
-						break;
-					}
-				}
+		pthread_t tids[NUM_TDS];
+		for(int i = 0; i < NUM_TDS; i++) {
+			pthread_create(&tids[i], NULL, computeHelper, &args[i]);
+		}
+		for(int i = 0; i < NUM_TDS; i++) {
+			pthread_join(tids[i], NULL);
+		}
+
+
+		for(int i = 0; i < NUM_TDS; i++) {
+			for(int add : args[i].addrsV) {
+				sInfo.addrs.push_back(add);
 			}
-			if(!skip) {
-				sInfo.addrs.push_back(pos);
-			}
-			/*fprintf(fp, "%d", pos);
-			for(int indV : indList) {
-				fprintf(fp, " %d", indV);
-			}
-			fprintf(fp, "\n");*/
 		}
 		//fclose(fp);
 		return sInfo;
@@ -645,6 +698,8 @@ namespace {
 					
 				}
                 	}
+
+			errs() << "Loop " << LoopCounter << " analyzed\n";
 		}
 
 
