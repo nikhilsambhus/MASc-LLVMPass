@@ -114,6 +114,10 @@ namespace {
 			  v = valQ.front();
 			  valQ.pop();
 
+			  if(v->hasName() == false) {
+			  	continue;
+			  }
+
 			  Instruction *inst = cast<Instruction>(v);
 			  if(llvm::isa<llvm::PHINode>(*inst)) {
 			  	indV.push_back(v->getName());
@@ -166,10 +170,10 @@ namespace {
 			  	continue;
 			  }
 
-			  /*if(llvm::isa <llvm::GetElementPtrInst> (*inst2)) {
+			  if(llvm::isa <llvm::GetElementPtrInst> (*inst2)) {
 				  std::map<StringRef, std::vector<int>> factM = extractGEP(inst2);
 				  hidFact.insert(factM.begin(), factM.end()); 
-			  }*/
+			  }
 			  if(llvm::isa <llvm::AllocaInst> (*inst2)) {
 				  alloc = v;
 			  }
