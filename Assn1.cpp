@@ -166,10 +166,10 @@ namespace {
 			  	continue;
 			  }
 
-			  if(llvm::isa <llvm::GetElementPtrInst> (*inst2)) {
+			  /*if(llvm::isa <llvm::GetElementPtrInst> (*inst2)) {
 				  std::map<StringRef, std::vector<int>> factM = extractGEP(inst2);
 				  hidFact.insert(factM.begin(), factM.end()); 
-			  }
+			  }*/
 			  if(llvm::isa <llvm::AllocaInst> (*inst2)) {
 				  alloc = v;
 			  }
