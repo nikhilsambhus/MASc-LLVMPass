@@ -269,6 +269,19 @@ namespace {
 
 	  }
 
+	  void computeScaleV(struct LoopData *ldata) {
+		  int sum = 0;
+		  for(unsigned i = 0; i < ldata->opsVV.size(); i++) {
+			  int val = 1;
+			  for(unsigned j = 0; j < ldata->opsVV[i].size(); j++) {
+				  if(ldata->opsVV[i][j] == Oprs::Mul) {
+					  val = val * ldata->factsVV[i][j];
+				  }
+			  }
+			  sum = sum + val;
+		  }
+		  ldata->scaleV = sum * ldata->hidFact;
+	  }
 	  void exprStride(std::vector<struct LoopData> &allLoopData, std::vector<struct LoopData *> &compLoopV, char *fname) {
 		int factor = 1;
 		for(int i = compLoopV.size() - 1; i >= 0; i--) {
@@ -282,6 +295,7 @@ namespace {
 		int stride = 1, j = compLoopV.size() - 1;
 		bool flag = false;
 		for(int i = allLoopData.size() - 1; i >= 0; i--) {
+			computeScaleV(compLoopV[j]);
 			if(j >= 0 && compLoopV[j] == &allLoopData[i] && compLoopV[j]->scaleV == compLoopV[j]->divInd) {
 				stride = stride * compLoopV[j]->finalV;
 				j--;
@@ -619,7 +633,7 @@ namespace {
 		 struct streamInfo sInfo;
 		 sInfo = computeStream(func, alloc, type, loopDataV, compLoopV);
 		 errs() << "Computed stream of addresses\n";
-		 //exprStride(loopDataV, compLoopV, sInfo.name);
+		 exprStride(loopDataV, compLoopV, sInfo.name);
 		 enumStride(sInfo);
 		 
 		 //enumReuse(sInfo);
