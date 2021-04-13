@@ -504,7 +504,7 @@ namespace {
 		errs() << "Jump analysis: ";
 
 		for(auto &tup : jumpMap) {
-			errs() << tup.first << " ";
+			errs() << tup.first << " : " << tup.second.size() << "\t";
 		}
 
 		errs() << "\n";
