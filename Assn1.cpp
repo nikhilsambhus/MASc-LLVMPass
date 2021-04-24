@@ -13,6 +13,7 @@
 #include "llvm/Support/raw_ostream.h"
 #include "LoopUtils.h"
 #include "DervInd.h"
+#include "genGraph.h"
 #include "llvm/IR/InstIterator.h"
 #include <queue>
 #include <pthread.h>
@@ -633,7 +634,7 @@ namespace {
 		 struct streamInfo sInfo;
 		 sInfo = computeStream(func, alloc, type, loopDataV, compLoopV);
 		 errs() << "Computed stream of addresses\n";
-		 exprStride(loopDataV, compLoopV, sInfo.name);
+		 //exprStride(loopDataV, compLoopV, sInfo.name);
 		 enumStride(sInfo);
 		 
 		 //enumReuse(sInfo);
@@ -683,7 +684,7 @@ namespace {
 		for(Loop *lit : Li) {
 			std::vector<struct LoopData> loopDataV;
 			LoopCounter++;
-
+			genGraph graphVal;
 			loopData = parseLoop(lit, SE, loopDataV);		
 			loopDataV.push_back(loopData);
 			std::unique_ptr<LoopNest> lnest = LoopNest::getLoopNest(*lit, SE); 
@@ -710,13 +711,16 @@ namespace {
 								}*/
 								allocVMap[alloc] = true;
 								analyzeStat(loopDataV, alloc, func, type, SE, visits, defsMap, hidFact);
+								Value *vl = cast<Value>(itr);
+								//errs() << "Load/Store inst is " << *vl << " accessing "<< alloc << " of type " << type << "\n";
+								graphVal.addToGraph(vl, alloc, type);
 							}
 						}
 					}
 					
 				}
                 	}
-
+			graphVal.printGraph();
 			errs() << "Loop " << LoopCounter << " analyzed\n";
 		}
 
