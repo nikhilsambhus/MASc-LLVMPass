@@ -721,6 +721,7 @@ namespace {
 				}
                 	}
 			graphVal.printGraph();
+			graphVal.compStats();
 			errs() << "Loop " << LoopCounter << " analyzed\n";
 		}
 

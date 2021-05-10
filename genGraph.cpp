@@ -50,3 +50,30 @@ void genGraph::printGraph() {
 	}
 }
 
+void genGraph::dispChar(const char *str) {
+	for(unsigned i = 0; i < strlen(str) ; i++){
+		errs() << str[i];
+	}
+}
+void genGraph::compStats() {
+	map<unsigned, unsigned> statMap;
+	map<unsigned, const char *> opMap;
+	for(auto elem : DFGbody.adjListMap) {
+		Value *v = elem.first;
+		Instruction *inst = cast<Instruction>(v);
+		const char *opName = inst->getOpcodeName();
+		unsigned op = inst->getOpcode();
+		if(opMap.find(op) == opMap.end()) {
+			opMap[op] = opName;
+			statMap[op] = 1;
+		}
+		else {
+			statMap[op] += 1;
+		}
+	}
+
+	for(auto elem : statMap) {
+		dispChar(opMap[elem.first]);
+		errs() << " occurs " << elem.second << " times\n";
+	}
+}

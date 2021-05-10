@@ -23,8 +23,10 @@ struct graph {
 
 class genGraph {
 	struct graph DFGbody;
+	void dispVal(Value*);
+	void dispChar(const char *);
 	public:
 	void addToGraph(Value*, StringRef, char*);
 	void printGraph();
-	void dispVal(Value*);
+	void compStats();
 };
