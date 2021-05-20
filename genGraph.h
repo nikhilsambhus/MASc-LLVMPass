@@ -21,12 +21,18 @@ struct graph {
 	map<Value*, StringRef> ldstMap;
 };
 
+typedef vector<vector<Value*>> pathElems;
+
 class genGraph {
 	struct graph DFGbody;
 	void dispVal(Value*);
 	void dispChar(const char *);
+	void addToPath(StringRef src, Value *val, std::vector<Value*> destV, pathElems &allPaths);
+	void computePaths(Value *vl, pathElems &allPaths);
+	void printPaths(pathElems &allPaths);
 	public:
 	void addToGraph(Value*, StringRef, char*);
 	void printGraph();
 	void compStats();
+	void loadPaths();
 };
