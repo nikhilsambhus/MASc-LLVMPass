@@ -79,20 +79,22 @@ void genGraph::printPaths(pathElems &allPaths) {
 	int count = 1;
 	for(std::vector<Value*> pathV : allPaths) {
 		errs() << "Path no. " << count << " ";
-		for(Value *elem: pathV) {
+		/*for(Value *elem: pathV) {
 			errs() << *(elem) << "\t";
-		}
+		}*/
 		count++;
-		errs() << "\n";
+		errs() << "has size " << pathV.size();
+		errs() << "\t";
 	}
 }
 void genGraph::loadPaths() {
 	for(auto elem : DFGbody.adjListMap) {
 		Instruction *inst = cast<Instruction>(elem.first);
 		if(llvm::isa<llvm::LoadInst> (*inst)) {
-			errs() << "Load " << *inst << " has following paths\n";
+			errs() << "\nLoad " << *inst << " has following path size : ";
 			pathElems allPaths;
 			computePaths(elem.first, allPaths);
+			//errs() << allPaths.size() << "\n";
 			printPaths(allPaths);
 		}
 	}

@@ -722,7 +722,7 @@ namespace {
                 	}
 			graphVal.printGraph();
 			graphVal.compStats();
-			//graphVal.loadPaths();
+			graphVal.loadPaths();
 			errs() << "Loop " << LoopCounter << " analyzed\n";
 		}
 
