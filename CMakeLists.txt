@@ -10,6 +10,7 @@ if(WIN32 OR CYGWIN)
   set(LLVM_LINK_COMPONENTS Core Support)
 endif()
 
+
 add_llvm_library( LLVMAssn1 MODULE BUILDTREE_ONLY
   Assn1.cpp
   StatDyn1.cpp
@@ -17,9 +18,15 @@ add_llvm_library( LLVMAssn1 MODULE BUILDTREE_ONLY
   genGraph.cpp
   Skeleton.cpp
   LoopUtils.cpp
+  #Edge.cpp
+  #Graph.cpp
+  #GraphUtils.cpp
+  #Node.cpp
 
   DEPENDS
   intrinsics_gen
   PLUGIN_TOOL
   opt
   )
+
+target_link_libraries(LLVMAssn1 "/home/sambhusn/llvm-project/llvm/lib/Transforms/LLVMAssngs/cgramap/Graph/lib/libgraph.a")

@@ -14,6 +14,8 @@
 #include "llvm/IR/InstIterator.h"
 #include <queue>
 #include <pthread.h>
+#include "Graph.h"
+#include "GraphUtils.h"
 using namespace llvm;
 using namespace std;
 struct graph {
@@ -25,6 +27,7 @@ typedef vector<vector<Value*>> pathElems;
 
 class genGraph {
 	struct graph DFGbody;
+	DAG libGrph;
 	void dispVal(Value*);
 	void dispChar(const char *);
 	void addToPath(StringRef src, Value *val, std::vector<Value*> destV, pathElems &allPaths);

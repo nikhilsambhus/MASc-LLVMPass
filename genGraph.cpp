@@ -64,15 +64,40 @@ void genGraph::dispVal(Value *vl) {
 }
 
 void genGraph::printGraph() {
+	map<Value*, uint32_t> nodeIds;
+	uint32_t id = 0;
 	for(auto elem : DFGbody.adjListMap) {
 		errs() << "Node ";
 		dispVal(elem.first);
+		nodeIds[elem.first] = id;
+
+		//add nodes to lib graph
+		Value *v = elem.first;
+		Instruction *inst = cast<Instruction>(v);
+		const char *opName = inst->getOpcodeName();
+		libGrph.addNode(id, opName);
+		id++;
 		errs() <<  " has following neighbours ";
 		for(auto vl : elem.second) {
 			dispVal(vl);
 		}
 		errs() << "\n";
 	}
+
+	id = 0; //iterate through adj element and add edges to libgraph using stored nodeIds
+	for(auto elem : DFGbody.adjListMap) {
+		uint32_t src = nodeIds[elem.first];
+		for(auto vl : elem.second) {
+			uint32_t dest = nodeIds[vl];
+			libGrph.addEdge(id, src, dest, "");	
+			id++;
+		}
+	}
+
+	string fname = "DFGbody.dot";
+	//errs() << fname << "\n";
+	toDOT(fname, libGrph);
+
 }
 
 void genGraph::printPaths(pathElems &allPaths) {
@@ -126,6 +151,7 @@ void genGraph::compStats() {
 		dispChar(opMap[elem.first]);
 		errs() << " occurs " << elem.second << " times\n";
 	}
+	errs() << "Graph has " << libGrph.getNumNodes() << " number of nodes\n";
 }
 void genGraph::addToPath(StringRef src, Value *val, std::vector<Value*> destV, pathElems &allPaths ) {
 	if(src.empty()) {
