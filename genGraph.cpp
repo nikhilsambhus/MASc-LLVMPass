@@ -63,7 +63,7 @@ void genGraph::dispVal(Value *vl) {
 	}
 }
 
-void genGraph::printGraph() {
+void genGraph::printGraph(string fname) {
 	map<Value*, uint32_t> nodeIds;
 	uint32_t id = 0;
 	for(auto elem : DFGbody.adjListMap) {
@@ -75,7 +75,13 @@ void genGraph::printGraph() {
 		Value *v = elem.first;
 		Instruction *inst = cast<Instruction>(v);
 		const char *opName = inst->getOpcodeName();
-		libGrph.addNode(id, opName);
+		string name = opName;
+		if(opName == std::string("call")) {
+			string c_name = cast<CallInst>(inst)->getCalledFunction()->getName().str();
+			//errs() << c_name;
+			name = name + " " + c_name;
+		}
+		libGrph.addNode(id, name);
 		id++;
 		errs() <<  " has following neighbours ";
 		for(auto vl : elem.second) {
@@ -94,7 +100,7 @@ void genGraph::printGraph() {
 		}
 	}
 
-	string fname = "DFGbody.dot";
+	fname = fname + ".dot";
 	//errs() << fname << "\n";
 	toDOT(fname, libGrph);
 

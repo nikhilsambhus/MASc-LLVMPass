@@ -35,7 +35,7 @@ class genGraph {
 	void printPaths(pathElems &allPaths);
 	public:
 	void addToGraph(Value*, StringRef, char*);
-	void printGraph();
+	void printGraph(string);
 	void compStats();
 	void loadPaths();
 };

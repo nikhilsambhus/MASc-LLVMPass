@@ -720,9 +720,12 @@ namespace {
 					
 				}
                 	}
-			graphVal.printGraph();
+
+			string name = F.getName().str();
+			name = name + std::to_string(LoopCounter);
+			graphVal.printGraph(name);
 			graphVal.compStats();
-			graphVal.loadPaths();
+			//graphVal.loadPaths();
 			errs() << "Loop " << LoopCounter << " analyzed\n";
 		}
 
