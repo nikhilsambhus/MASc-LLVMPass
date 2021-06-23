@@ -441,7 +441,7 @@ namespace {
 		return sInfo;
 	  }
 
-	  void enumStride(struct streamInfo &sInfo) {
+	  int enumStride(struct streamInfo &sInfo) {
 	  	int prevpos = sInfo.addrs[0];
 		int curpos;
 		int diff;
@@ -498,8 +498,12 @@ namespace {
 		}
 
 		errs() << "Stride analysis based on enumeration of " << sInfo.name << " which has total size "<< sInfo.addrs.size() << ":\n";
+		int minRet = INT_MAX;
 		for(auto &tup : oneStrideMap) {
 			errs() << tup.first << " size continuous substream occurs " << tup.second << " times \n"; 
+			if(minRet > tup.first) {
+				minRet = tup.first;
+			}
 		}
 
 		errs() << "Jump analysis: ";
@@ -509,6 +513,8 @@ namespace {
 		}
 
 		errs() << "\n";
+
+		return minRet;
 
 	  }
 
@@ -577,7 +583,8 @@ namespace {
 
 
 	  }
-	  void analyzeStat(std::vector<struct LoopData> &loopDataV, StringRef &alloc, StringRef &func, char* type, ScalarEvolution &SE, std::vector<StringRef> &visits, std::map<StringRef, Value*> &defsMap, std::map<StringRef, std::vector<int>> &hidFact) {
+
+	  int analyzeStat(std::vector<struct LoopData> &loopDataV, StringRef &alloc, StringRef &func, char* type, ScalarEvolution &SE, std::vector<StringRef> &visits, std::map<StringRef, Value*> &defsMap, std::map<StringRef, std::vector<int>> &hidFact) {
 		  errs() << "Accessing " << alloc << " of type " << type << "\n";
 		  std::vector<struct LoopData*> compLoopV;
 		  for(struct LoopData &ldata : loopDataV) {
@@ -635,9 +642,10 @@ namespace {
 		 sInfo = computeStream(func, alloc, type, loopDataV, compLoopV);
 		 errs() << "Computed stream of addresses\n";
 		 //exprStride(loopDataV, compLoopV, sInfo.name);
-		 enumStride(sInfo);
+		 int ret = enumStride(sInfo);
 		 
 		 //enumReuse(sInfo);
+		 return ret;
 	  }
 
 	  bool runOnFunction(Function &F) override {
@@ -685,6 +693,7 @@ namespace {
 			std::vector<struct LoopData> loopDataV;
 			LoopCounter++;
 			genGraph graphVal;
+			map<Value*, int> strideMap;
 			loopData = parseLoop(lit, SE, loopDataV);		
 			loopDataV.push_back(loopData);
 			std::unique_ptr<LoopNest> lnest = LoopNest::getLoopNest(*lit, SE); 
@@ -710,9 +719,10 @@ namespace {
 									continue;
 								}*/
 								allocVMap[alloc] = true;
-								analyzeStat(loopDataV, alloc, func, type, SE, visits, defsMap, hidFact);
+								int stride = analyzeStat(loopDataV, alloc, func, type, SE, visits, defsMap, hidFact);
 								Value *vl = cast<Value>(itr);
 								//errs() << "Load/Store inst is " << *vl << " accessing "<< alloc << " of type " << type << "\n";
+								strideMap[vl] = stride;
 								graphVal.addToGraph(vl, alloc, type);
 							}
 						}
@@ -723,7 +733,7 @@ namespace {
 
 			string name = F.getName().str();
 			name = name + std::to_string(LoopCounter);
-			graphVal.printGraph(name);
+			graphVal.printGraph(name, strideMap);
 			graphVal.compStats();
 			//graphVal.loadPaths();
 			errs() << "Loop " << LoopCounter << " analyzed\n";

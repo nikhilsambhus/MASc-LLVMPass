@@ -63,7 +63,7 @@ void genGraph::dispVal(Value *vl) {
 	}
 }
 
-void genGraph::printGraph(string fname) {
+void genGraph::printGraph(string fname, map<Value*,int> strideMap) {
 	map<Value*, uint32_t> nodeIds;
 	uint32_t id = 0;
 	for(auto elem : DFGbody.adjListMap) {
@@ -80,6 +80,9 @@ void genGraph::printGraph(string fname) {
 			string c_name = cast<CallInst>(inst)->getCalledFunction()->getName().str();
 			//errs() << c_name;
 			name = name + " " + c_name;
+		}
+		if(strideMap.find(v) != strideMap.end()) {
+			name = name + ";" + to_string(strideMap[v]);
 		}
 		libGrph.addNode(id, name);
 		id++;
