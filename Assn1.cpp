@@ -75,6 +75,7 @@ namespace {
   struct Stat1Loop : public FunctionPass {
   		
 	  static char ID;
+	  map<Value*, bool> streamProps;
 	  Stat1Loop() : FunctionPass(ID) {}
 	  
 	  virtual void getAnalysisUsage(AnalysisUsage& AU) const override {
@@ -145,7 +146,7 @@ namespace {
 		  return retMap;
 	  }
 
-	  bool reverseClosure(llvm::BasicBlock::iterator &inst, std::map<StringRef, Value*> defsMap, StringRef &alloc, char *type, std::vector<StringRef> *visits, std::map<StringRef, std::vector<int>> &hidFact) {
+	  bool reverseClosure(llvm::BasicBlock::iterator &inst, std::map<StringRef, Value*> defsMap, StringRef &alloc, char *type, std::vector<StringRef> *visits, std::map<StringRef, std::vector<int>> &hidFact, bool &isIndirect) {
 	  	  std::queue<StringRef> labQ;
 		  int phiCounter = 0;
 		  std::map <StringRef, bool> visited;
@@ -164,6 +165,11 @@ namespace {
 		  while(!labQ.empty()) {
 		  	  StringRef v = labQ.front();
 			  visits->push_back(v);
+			  if(streamProps.find(defsMap[v]) != streamProps.end()) {
+			  	//errs() << "Indirect access\n";
+				isIndirect = true;
+				return true;
+			  }
 			  //errs() << v << " defined by " << *defsMap[v] << "\n";
 			  labQ.pop();
 			  Instruction* inst2 = cast<Instruction>(defsMap[v]);
@@ -177,6 +183,7 @@ namespace {
 			  }
 			  if(llvm::isa <llvm::AllocaInst> (*inst2)) {
 				  alloc = v;
+				  //errs() << v << "\n";
 			  }
 			  else if(llvm::isa<llvm::PHINode>(*inst2)) {
 				  phiCounter++;
@@ -205,6 +212,7 @@ namespace {
 		  	return false;
 		  }
 		  else {
+		  	isIndirect = false;
 		  	return true;
 		  }
 	  }
@@ -714,15 +722,24 @@ namespace {
 							char type[16];
 							std::vector<StringRef> visits;
 							std::map<StringRef, std::vector<int>> hidFact;
-							if(reverseClosure(itr, defsMap, alloc, type, &visits, hidFact) == true) {
+							bool isIndirect;
+							if(reverseClosure(itr, defsMap, alloc, type, &visits, hidFact, isIndirect) == true) {
 								/*if(allocVMap.find(alloc) != allocVMap.end()) {
 									continue;
-								}*/
+								}
 								allocVMap[alloc] = true;
-								int stride = analyzeStat(loopDataV, alloc, func, type, SE, visits, defsMap, hidFact);
+								*/
 								Value *vl = cast<Value>(itr);
-								//errs() << "Load/Store inst is " << *vl << " accessing "<< alloc << " of type " << type << "\n";
-								strideMap[vl] = stride;
+								streamProps[vl] = true;
+								if(isIndirect == false) {
+									int stride = analyzeStat(loopDataV, alloc, func, type, SE, visits, defsMap, hidFact);
+									//errs() << "Load/Store inst is " << *vl << " accessing "<< alloc << " of type " << type << "\n";
+									strideMap[vl] = stride;
+								}
+								else {
+		  							errs() << "Indirect access " << alloc << " of type " << type << "; cannot enumrate stream addresses\n";
+									strideMap[vl] = 1;
+								}
 								graphVal.addToGraph(vl, alloc, type);
 							}
 						}
