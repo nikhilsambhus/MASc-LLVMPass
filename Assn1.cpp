@@ -72,10 +72,16 @@ namespace {
 	vector<int> addrsV;
   };
 
+  struct streamProp {
+  	struct streamInfo sInfo;
+	bool isIndirect;
+	int s_size;
+  };
+
   struct Stat1Loop : public FunctionPass {
   		
 	  static char ID;
-	  map<Value*, bool> streamProps;
+	  map<Value*, struct streamProp> propMap;
 	  Stat1Loop() : FunctionPass(ID) {}
 	  
 	  virtual void getAnalysisUsage(AnalysisUsage& AU) const override {
@@ -165,7 +171,7 @@ namespace {
 		  while(!labQ.empty()) {
 		  	  StringRef v = labQ.front();
 			  visits->push_back(v);
-			  if(streamProps.find(defsMap[v]) != streamProps.end()) {
+			  if(propMap.find(defsMap[v]) != propMap.end()) {
 			  	//errs() << "Indirect access\n";
 				isIndirect = true;
 				return true;
@@ -592,7 +598,7 @@ namespace {
 
 	  }
 
-	  int analyzeStat(std::vector<struct LoopData> &loopDataV, StringRef &alloc, StringRef &func, char* type, ScalarEvolution &SE, std::vector<StringRef> &visits, std::map<StringRef, Value*> &defsMap, std::map<StringRef, std::vector<int>> &hidFact) {
+	  struct streamProp analyzeStat(std::vector<struct LoopData> &loopDataV, StringRef &alloc, StringRef &func, char* type, ScalarEvolution &SE, std::vector<StringRef> &visits, std::map<StringRef, Value*> &defsMap, std::map<StringRef, std::vector<int>> &hidFact) {
 		  errs() << "Accessing " << alloc << " of type " << type << "\n";
 		  std::vector<struct LoopData*> compLoopV;
 		  for(struct LoopData &ldata : loopDataV) {
@@ -646,16 +652,74 @@ namespace {
 
 		 errs() << "\b\b \n";
 
+		 struct streamProp sProp;
 		 struct streamInfo sInfo;
 		 sInfo = computeStream(func, alloc, type, loopDataV, compLoopV);
 		 errs() << "Computed stream of addresses\n";
 		 //exprStride(loopDataV, compLoopV, sInfo.name);
-		 int ret = enumStride(sInfo);
-		 
+		 int size = enumStride(sInfo);
+		  
+ 		 sProp.sInfo = sInfo;
+		 sProp.s_size = size;
 		 //enumReuse(sInfo);
-		 return ret;
+		 return sProp;
 	  }
 
+	  void analyzeDeps() {
+	  	map<Value*, bool> visited;
+		for(auto elem : propMap) {
+			if(elem.second.isIndirect == true) {
+				visited[elem.first] = true;
+			}
+			else {
+				visited[elem.first] = false;
+			}
+		}
+		
+		vector<vector<struct streamProp>> matchVV;
+		for(auto elem : propMap) {
+			if(visited[elem.first] == true) {
+				continue;
+			}
+			visited[elem.first] = true;
+			char *first = elem.second.sInfo.name;
+			vector<struct streamProp> matchV;
+			matchV.push_back(elem.second);
+			for(auto elem2 : propMap) {
+				if(visited[elem2.first] == true) {
+					continue;
+				}
+				if(strcmp(first, elem2.second.sInfo.name) == 0) {
+					visited[elem2.first] = true;
+					matchV.push_back(elem2.second);
+				}
+			}
+			matchVV.push_back(matchV);
+		}
+
+		for(auto matchV : matchVV) {
+			if(matchV.size() > 1) {
+				errs() << matchV[0].sInfo.name << " occurs " << matchV.size()  << " times ";
+				int start = INT_MAX, end = INT_MIN;
+				int count = 1;
+				for(auto sProp : matchV) {
+					if(start > sProp.sInfo.addrs[0]) {
+						start = sProp.sInfo.addrs[0];
+					}
+					
+					if(end < sProp.sInfo.addrs.back()) {
+						end = sProp.sInfo.addrs.back();
+					}
+
+					errs() << " Stream " << count << ":[" << sProp.sInfo.addrs[0] << "-" << sProp.sInfo.addrs.back() << "] ";
+					count++;
+				}
+
+				errs() << "\nCumulative: start=" << start << " end=" << end << " with window size of " << matchV[0].sInfo.addrs.size() << "\n";
+
+			}
+		}
+	  }
 	  bool runOnFunction(Function &F) override {
 		errs() << "\nFunction name : " << F.getName() << "\n";
 		InstCounter = 0;
@@ -698,6 +762,7 @@ namespace {
 		ScalarEvolution &SE = getAnalysis<ScalarEvolutionWrapperPass>().getSE(); 
 		std::map<StringRef, bool> allocVMap;
 		for(Loop *lit : Li) {
+			propMap.clear();
 			std::vector<struct LoopData> loopDataV;
 			LoopCounter++;
 			genGraph graphVal;
@@ -730,16 +795,18 @@ namespace {
 								allocVMap[alloc] = true;
 								*/
 								Value *vl = cast<Value>(itr);
-								streamProps[vl] = true;
+								struct streamProp sProp;
 								if(isIndirect == false) {
-									int stride = analyzeStat(loopDataV, alloc, func, type, SE, visits, defsMap, hidFact);
+									sProp = analyzeStat(loopDataV, alloc, func, type, SE, visits, defsMap, hidFact);
 									//errs() << "Load/Store inst is " << *vl << " accessing "<< alloc << " of type " << type << "\n";
-									strideMap[vl] = stride;
+									strideMap[vl] = sProp.s_size;
 								}
 								else {
 		  							errs() << "Indirect access " << alloc << " of type " << type << "; cannot enumrate stream addresses\n";
 									strideMap[vl] = 1;
 								}
+								sProp.isIndirect = isIndirect;
+								propMap[vl] = sProp;
 								graphVal.addToGraph(vl, alloc, type);
 							}
 						}
@@ -748,11 +815,13 @@ namespace {
 				}
                 	}
 
+			
 			string name = F.getName().str();
 			name = name + std::to_string(LoopCounter);
 			graphVal.printGraph(name, strideMap);
 			graphVal.compStats();
 			//graphVal.loadPaths();
+			analyzeDeps();
 			errs() << "Loop " << LoopCounter << " analyzed\n";
 		}
 
