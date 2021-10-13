@@ -75,6 +75,7 @@ namespace {
   struct streamProp {
   	struct streamInfo sInfo;
 	bool isIndirect;
+	bool isConstant;
 	int s_size;
   };
 
@@ -152,7 +153,7 @@ namespace {
 		  return retMap;
 	  }
 
-	  bool reverseClosure(llvm::BasicBlock::iterator &inst, std::map<StringRef, Value*> defsMap, StringRef &alloc, char *type, std::vector<StringRef> *visits, std::map<StringRef, std::vector<int>> &hidFact, bool &isIndirect) {
+	  bool reverseClosure(llvm::BasicBlock::iterator &inst, std::map<StringRef, Value*> defsMap, StringRef &alloc, char *type, std::vector<StringRef> *visits, std::map<StringRef, std::vector<int>> &hidFact, bool &isIndirect, bool &isConstant) {
 	  	  std::queue<StringRef> labQ;
 		  int phiCounter = 0;
 		  std::map <StringRef, bool> visited;
@@ -174,6 +175,7 @@ namespace {
 			  if(propMap.find(defsMap[v]) != propMap.end()) {
 			  	//errs() << "Indirect access\n";
 				isIndirect = true;
+				isConstant = false;
 				return true;
 			  }
 			  //errs() << v << " defined by " << *defsMap[v] << "\n";
@@ -214,10 +216,17 @@ namespace {
 		  }*/
 		  
 		  
-		  if((alloc.empty()) || (phiCounter == 0)) {
+		  //errs() << *inst << alloc << phiCounter << "\n";
+		  if((alloc.empty())) {
 		  	return false;
 		  }
+		  else if(phiCounter == 0) {
+		  	isConstant = true;
+		  	isIndirect = false;
+		  	return true;
+		  }
 		  else {
+		  	isConstant = false;
 		  	isIndirect = false;
 		  	return true;
 		  }
@@ -668,7 +677,7 @@ namespace {
 	  void analyzeDeps() {
 	  	map<Value*, bool> visited;
 		for(auto elem : propMap) {
-			if(elem.second.isIndirect == true) {
+			if(elem.second.isIndirect == true || elem.second.isConstant == true) {
 				visited[elem.first] = true;
 			}
 			else {
@@ -788,7 +797,8 @@ namespace {
 							std::vector<StringRef> visits;
 							std::map<StringRef, std::vector<int>> hidFact;
 							bool isIndirect;
-							if(reverseClosure(itr, defsMap, alloc, type, &visits, hidFact, isIndirect) == true) {
+							bool isConstant;
+							if(reverseClosure(itr, defsMap, alloc, type, &visits, hidFact, isIndirect, isConstant) == true) {
 								/*if(allocVMap.find(alloc) != allocVMap.end()) {
 									continue;
 								}
@@ -796,16 +806,21 @@ namespace {
 								*/
 								Value *vl = cast<Value>(itr);
 								struct streamProp sProp;
-								if(isIndirect == false) {
+								if(isIndirect == false && isConstant == false) {
 									sProp = analyzeStat(loopDataV, alloc, func, type, SE, visits, defsMap, hidFact);
 									//errs() << "Load/Store inst is " << *vl << " accessing "<< alloc << " of type " << type << "\n";
 									strideMap[vl] = sProp.s_size;
 								}
-								else {
+								else if(isIndirect == true) {
 		  							errs() << "Indirect access " << alloc << " of type " << type << "; cannot enumrate stream addresses\n";
 									strideMap[vl] = 1;
 								}
+								else if(isConstant == true) {
+		  							errs() << "Constant address access " << alloc << " of type " << type << "\n";
+									strideMap[vl] = 1;
+								}
 								sProp.isIndirect = isIndirect;
+								sProp.isConstant = isConstant;
 								propMap[vl] = sProp;
 								graphVal.addToGraph(vl, alloc, type);
 							}
