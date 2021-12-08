@@ -2,7 +2,7 @@
 # from the hello plugin.
 if( NOT LLVM_REQUIRES_RTTI )
   if( NOT LLVM_REQUIRES_EH )
-	  set(LLVM_EXPORTED_SYMBOL_FILE ${CMAKE_CURRENT_SOURCE_DIR}/Assn1.exports)
+	  set(LLVM_EXPORTED_SYMBOL_FILE ${CMAKE_CURRENT_SOURCE_DIR}/StaticPass.exports)
   endif()
 endif()
 
@@ -12,7 +12,7 @@ endif()
 
 
 add_llvm_library( LLVMAssn1 MODULE BUILDTREE_ONLY
-  Assn1.cpp
+  StaticPass.cpp
   StatDyn1.cpp
   DervInd.cpp
   genGraph.cpp
