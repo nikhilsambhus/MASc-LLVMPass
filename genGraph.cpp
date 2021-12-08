@@ -15,9 +15,9 @@ void genGraph::addToGraph(Value *ins, StringRef alloc, char *type) {
 			Value *us = cast<Value> (U);
 			adjV.push_back(us);
 			Instruction *inst = cast<Instruction>(us);
-			if(!llvm::isa<llvm::PHINode>(*inst) && (DFGbody.adjListMap.find(us) == DFGbody.adjListMap.end())) {
+			//if(!llvm::isa<llvm::PHINode>(*inst) && (DFGbody.adjListMap.find(us) == DFGbody.adjListMap.end())) {
 				valQ.push(us);
-			}
+			//}
 			//errs() << "Value used in " << *us << "\n";
 		}
 		DFGbody.adjListMap[vl] = adjV;

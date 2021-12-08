@@ -535,7 +535,7 @@ namespace {
 			errs() << tup.first << " : " << tup.second.size() << "\t";
 		}
 
-		errs() << "\n";
+		errs() << "Done\n";
 
 		return minRet;
 
@@ -822,7 +822,7 @@ namespace {
 								sProp.isIndirect = isIndirect;
 								sProp.isConstant = isConstant;
 								propMap[vl] = sProp;
-								graphVal.addToGraph(vl, alloc, type);
+								//graphVal.addToGraph(vl, alloc, type);
 							}
 						}
 					}
